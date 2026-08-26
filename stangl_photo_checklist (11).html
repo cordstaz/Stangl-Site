@@ -1,0 +1,849 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Stangl Stash: Mom and Cord's Stangl Collections</title>
+
+<!--
+  =====================================================================
+  SETUP INSTRUCTIONS (do this before uploads/dashboard will work)
+  =====================================================================
+  1. Go to https://console.firebase.google.com, create a free project.
+  2. In the project: Build -> Storage -> Get Started -> choose default
+     settings (test mode is fine to start).
+  3. Storage -> Rules tab -> replace the rules with something like this,
+     then click Publish. This allows anyone with the link to read/write
+     photos (there's no login system on this site, so treat the link
+     itself as the "password"):
+       rules_version = '2';
+       service firebase.storage {
+         match /b/{bucket}/o {
+           match /{allPaths=**} {
+             allow read, write: if true;
+           }
+         }
+       }
+  4. Project Settings (gear icon) -> General -> scroll to "Your apps" ->
+     click the web icon (</>) -> register an app (nickname is up to you,
+     no hosting needed) -> copy the firebaseConfig object it gives you.
+  5. Paste your real values into the firebaseConfig object right below
+     this comment, replacing the placeholder text.
+  6. Commit this file (and mom-and-cord.jpg) to your GitHub repo, point
+     your Namecheap domain at GitHub Pages, and reload the live site.
+  =====================================================================
+-->
+
+<script>
+  const firebaseConfig = {
+    apiKey: "AIzaSyAX6bhHxrRPkGZI5DfCsP7h3uKaKGPr8us",
+    authDomain: "stangl-stash.firebaseapp.com",
+    projectId: "stangl-stash",
+    storageBucket: "stangl-stash.firebasestorage.app",
+    messagingSenderId: "731102055344",
+    appId: "1:731102055344:web:faba64979629d259a06475"
+  };
+</script>
+
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-storage-compat.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.4/chart.umd.min.js"></script>
+
+<style>
+  :root {
+    --navy: #14213d;
+    --gold: #b8860b;
+    --cream: #faf6ee;
+    --line: #e2dccb;
+    --cord: #14213d;
+    --mom: #a5473c;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: Georgia, 'Times New Roman', serif;
+    background: var(--cream);
+    color: #222;
+  }
+  header {
+    background: var(--navy);
+    color: var(--cream);
+    padding: 20px 16px 16px;
+    text-align: center;
+    position: relative;
+  }
+  header h1 { margin: 0 0 4px; font-size: 1.35rem; }
+  header p { margin: 0; color: var(--gold); font-size: 0.8rem; }
+  .back-btn {
+    position: absolute;
+    left: 12px;
+    top: 18px;
+    background: none;
+    border: 1px solid var(--gold);
+    color: var(--gold);
+    padding: 6px 12px;
+    border-radius: 6px;
+    font-family: inherit;
+    font-size: 0.85rem;
+    cursor: pointer;
+  }
+  .back-btn:hover { background: rgba(184,134,11,0.15); }
+
+  .home-photo {
+    display: block; width: 100%; max-width: 220px; margin: 0 auto 14px;
+    border-radius: 10px; border: 3px solid var(--gold);
+    box-shadow: 0 3px 10px rgba(0,0,0,0.15);
+  }
+  .home-layout {
+    max-width: 1700px; margin: 20px auto 0; padding: 0 20px;
+    display: flex; gap: 36px; align-items: flex-start;
+  }
+  .panel-divider {
+    width: 1px; align-self: stretch; background: var(--line); flex: 0 0 1px;
+    min-height: 400px;
+  }
+  .dashboard-panel {
+    flex: 0 0 640px; background: #fff; border: 1px solid var(--line); border-radius: 10px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+    padding: 18px; position: sticky; top: 16px;
+    max-height: calc(100vh - 32px); overflow-y: auto; overflow-x: hidden;
+  }
+  .dashboard-panel canvas { max-width: 100%; }
+  .panel-heading {
+    font-size: 1.05rem; color: var(--navy); margin: 0 0 10px;
+    border-bottom: 2px solid var(--gold); padding-bottom: 6px;
+  }
+  .dashboard-loading, .dashboard-note { font-size: 0.85rem; color: #888; }
+  .dash-donuts { display: flex; gap: 10px; margin-bottom: 6px; }
+  .donut-wrap { flex: 1; text-align: center; position: relative; }
+  .donut-pct {
+    position: absolute; top: 40px; left: 0; right: 0; text-align: center;
+    font-size: 1.05rem; font-weight: bold; pointer-events: none;
+  }
+  .donut-pct.cord { color: var(--cord); }
+  .donut-pct.mom { color: var(--mom); }
+  .donut-name { font-size: 0.78rem; color: #666; margin-top: 4px; }
+  .dash-subheading {
+    font-size: 0.82rem; text-transform: uppercase; letter-spacing: 0.5px; color: #777;
+    margin: 14px 0 6px;
+  }
+  .dash-chart-scroll {
+    max-height: 280px; overflow-y: auto; border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px;
+  }
+  .dash-legend { display: flex; gap: 14px; justify-content: center; margin-bottom: 8px; font-size: 0.78rem; }
+  .dash-legend-item { display: flex; align-items: center; gap: 5px; }
+  .dash-legend-swatch { width: 10px; height: 10px; border-radius: 3px; display: inline-block; }
+  .dash-legend-swatch.cord { background: var(--cord); }
+  .dash-legend-swatch.mom { background: var(--mom); }
+  .refresh-btn {
+    width: 100%; margin-top: 14px; padding: 9px; border: 1px solid var(--gold); background: none;
+    color: var(--gold); border-radius: 6px; font-family: inherit; font-size: 0.85rem; cursor: pointer;
+  }
+  .refresh-btn:hover { background: rgba(184,134,11,0.15); }
+  .collections-panel {
+    flex: 1; min-width: 0; background: #fff; border: 1px solid var(--line); border-radius: 10px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.06); padding: 18px;
+    max-height: calc(100vh - 32px); overflow-y: auto; align-self: flex-start;
+  }
+  @media (max-width: 1300px) {
+    .home-layout { flex-direction: column; }
+    .panel-divider { display: none; }
+    .dashboard-panel { flex: 1 1 auto; width: 100%; position: static; max-height: none; overflow-y: visible; }
+    .collections-panel { width: 100%; max-height: none; overflow-y: visible; }
+  }
+
+  .controls {
+    margin: 0 0 14px; padding: 0;
+    display: flex; gap: 10px; flex-wrap: wrap;
+  }
+  .controls input[type="text"] {
+    flex: 1; min-width: 160px; padding: 8px 10px;
+    border: 1px solid var(--line); border-radius: 6px; font-family: inherit; font-size: 0.95rem;
+  }
+  main { padding: 14px 16px 40px; }
+  .detail-header-block ~ main { max-width: 760px; margin: 0 auto; padding: 14px 16px 40px; }
+  .collections-panel main { padding: 0; }
+  .letter-heading {
+    font-size: 0.9rem; color: var(--navy); border-bottom: 2px solid var(--gold);
+    padding-bottom: 4px; margin: 18px 0 8px; letter-spacing: 1px; text-transform: uppercase;
+  }
+  .letter-rows-grid {
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 4px 16px;
+  }
+  .pattern-row {
+    display: flex; align-items: center; gap: 10px; padding: 10px 8px;
+    border-bottom: 1px solid var(--line); background: #fff; cursor: pointer; border-radius: 4px;
+  }
+  .pattern-row:hover { background: #fbf3e0; }
+  .pattern-name { flex: 1; font-size: 1rem; color: var(--navy); }
+  .ext-link { color: #999; text-decoration: none; font-size: 0.9rem; padding: 4px 6px; }
+  .ext-link:hover { color: var(--gold); }
+
+  .detail-header-block { max-width: 760px; margin: 14px auto 0; padding: 0 16px; }
+  .detail-link {
+    display: inline-block; font-size: 0.85rem; color: var(--gold); text-decoration: none;
+    border: 1px solid var(--gold); padding: 5px 12px; border-radius: 6px; margin-bottom: 10px;
+  }
+  .detail-link:hover { background: rgba(184,134,11,0.15); }
+
+  .piece-block { border-bottom: 1px solid var(--line); background: #fff; padding: 12px 10px; margin-bottom: 6px; border-radius: 6px; }
+  .piece-title { font-size: 1rem; color: var(--navy); margin: 0 0 10px; font-weight: bold; }
+  .person-row { display: flex; gap: 16px; flex-wrap: wrap; }
+  .person-col { flex: 1; min-width: 140px; }
+  .person-label {
+    font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.5px;
+    margin-bottom: 6px; font-weight: bold;
+  }
+  .person-label.cord { color: var(--cord); }
+  .person-label.mom { color: var(--mom); }
+  .photo-slot {
+    width: 100%; aspect-ratio: 1; border-radius: 8px; border: 2px dashed var(--line);
+    display: flex; align-items: center; justify-content: center; overflow: hidden;
+    cursor: pointer; background: #faf8f2; position: relative;
+  }
+  .photo-slot img { width: 100%; height: 100%; object-fit: cover; }
+  .delete-photo-btn {
+    position: absolute; top: 4px; right: 4px; width: 22px; height: 22px;
+    border-radius: 50%; border: none; background: rgba(0,0,0,0.55); color: #fff;
+    font-size: 1rem; line-height: 1; cursor: pointer; display: flex;
+    align-items: center; justify-content: center; padding: 0;
+  }
+  .delete-photo-btn:hover { background: rgba(165,71,60,0.9); }
+  .delete-photo-btn:disabled { opacity: 0.6; cursor: default; }
+  .photo-slot .upload-label {
+    font-size: 0.8rem; color: #999; text-align: center; padding: 8px;
+  }
+  .photo-slot input[type="file"] { display: none; }
+  .photo-slot.uploading .upload-label { color: var(--gold); }
+
+  .lightbox-overlay {
+    position: fixed; inset: 0; background: rgba(0,0,0,0.85);
+    display: none; align-items: center; justify-content: center; z-index: 999; padding: 20px;
+  }
+  .lightbox-overlay.open { display: flex; }
+  .lightbox-overlay img { max-width: 100%; max-height: 90vh; border-radius: 8px; }
+  .lightbox-close {
+    position: absolute; top: 16px; right: 20px; color: #fff; font-size: 2rem;
+    cursor: pointer; background: none; border: none;
+  }
+  footer { text-align: center; font-size: 0.72rem; color: #888; padding: 14px 20px 26px; max-width: 1400px; margin: 0 auto; }
+  .empty-note { text-align: center; color: #888; font-size: 0.9rem; padding: 20px; }
+  .config-warning {
+    max-width: 760px; margin: 14px auto; padding: 12px 16px; background: #fdecea;
+    border: 1px solid #f1a9a0; border-radius: 8px; color: #8a2f22; font-size: 0.85rem;
+  }
+  .password-gate {
+    position: fixed; inset: 0; background: var(--navy); z-index: 1000;
+    display: flex; align-items: center; justify-content: center; padding: 20px;
+  }
+  .password-box {
+    background: var(--cream); border-radius: 10px; padding: 32px 28px; text-align: center;
+    max-width: 320px; width: 100%; box-shadow: 0 6px 24px rgba(0,0,0,0.3);
+  }
+  .password-box h2 { margin: 0 0 6px; color: var(--navy); }
+  .password-box p { margin: 0 0 16px; color: #666; font-size: 0.9rem; }
+  .password-box input {
+    width: 100%; padding: 10px; border: 1px solid var(--line); border-radius: 6px;
+    font-family: inherit; font-size: 1rem; margin-bottom: 12px; box-sizing: border-box;
+  }
+  .password-box button {
+    width: 100%; padding: 10px; border: none; border-radius: 6px; background: var(--gold);
+    color: #fff; font-family: inherit; font-size: 1rem; cursor: pointer;
+  }
+  .password-box button:hover { background: #a07709; }
+  .password-error { color: #a5473c; font-size: 0.85rem; margin: 10px 0 0; min-height: 1em; }
+</style>
+</head>
+<body>
+
+<div id="passwordGate" class="password-gate">
+  <div class="password-box">
+    <h2>Stangl Stash</h2>
+    <p>Enter the password to continue</p>
+    <input type="password" id="passwordInput" placeholder="Password" autocomplete="off">
+    <button id="passwordSubmit">Enter</button>
+    <p id="passwordError" class="password-error"></p>
+  </div>
+</div>
+
+<header id="headerBar">
+  <h1 id="headerTitle">Stangl Stash: Mom and Cord's Stangl Collections</h1>
+  <p id="headerSub">Tap a pattern to open its piece checklist</p>
+</header>
+
+<div id="app"></div>
+
+<div class="lightbox-overlay" id="lightbox">
+  <button class="lightbox-close" id="lightboxClose">&times;</button>
+  <img id="lightboxImg" src="" alt="">
+</div>
+
+<script>
+const patterns = [
+  ["ABC", "https://www.replacements.com/china-stangl-abc/c/98339"],
+  ["Amber Glo", "https://www.replacements.com/china-stangl-amber-glo/c/98345"],
+  ["Antique Gold (Gold on Green Body)", "https://www.replacements.com/china-stangl-antique-gold-gold-on-green-body/c/98346"],
+  ["Apple Delight", "https://www.replacements.com/china-stangl-apple-delight/c/98348"],
+  ["Bachelor's Button", "https://www.replacements.com/china-stangl-bachelors-button/c/98350"],
+  ["Bella Rosa", "https://www.replacements.com/china-stangl-bella-rosa/c/98352"],
+  ["Bittersweet", "https://www.replacements.com/china-stangl-bittersweet/c/98353"],
+  ["Blossom Ring", "https://www.replacements.com/china-stangl-blossom-ring/c/98357"],
+  ["Blue Bell", "https://www.replacements.com/china-stangl-blue-bell/c/98354"],
+  ["Blue Daisy", "https://www.replacements.com/china-stangl-blue-daisy/c/98355"],
+  ["Blueberry", "https://www.replacements.com/china-stangl-blueberry/c/98358"],
+  ["Carnival", "https://www.replacements.com/china-stangl-carnival/c/98361"],
+  ["Cat and The Fiddle", "https://www.replacements.com/china-stangl-cat-the-fiddle/c/156187"],
+  ["Caughley Blue", "https://www.replacements.com/china-stangl-caughley-blue/c/98362"],
+  ["Caughley Green", "https://www.replacements.com/china-stangl-caughley-green/c/98363"],
+  ["Caughley Yellow", "https://www.replacements.com/china-stangl-caughley-yellow/c/98364"],
+  ["Chicory", "https://www.replacements.com/china-stangl-chicory/c/98365"],
+  ["Colonial Blue (Medium)", "https://www.replacements.com/china-stangl-colonial-colonial-blue-medium/c/98373"],
+  ["Colonial Green (Silver)", "https://www.replacements.com/china-stangl-colonial-green-silver/c/98371"],
+  ["Colonial Rose", "https://www.replacements.com/china-stangl-colonial-rose/c/98382"],
+  ["Colonial Tangerine", "https://www.replacements.com/china-stangl-colonial-tangerine/c/98377"],
+  ["Colonial Yellow (Persian)", "https://www.replacements.com/china-stangl-colonial-yellow-persian/c/98379"],
+  ["Country Garden (Brown Body and Carved)", "https://www.replacements.com/china-stangl-country-garden-brown-body-carved/c/98367"],
+  ["Country Garden (White Body)", "https://www.replacements.com/china-stangl-country-garden-white-body/c/98368"],
+  ["Country Life", "https://www.replacements.com/china-stangl-country-life/c/98372"],
+  ["Cranberry", "https://www.replacements.com/china-stangl-cranberry/c/98385"],
+  ["Dahlia (Brown Bottom)", "https://www.replacements.com/china-stangl-dahlia-brown-bottom/c/98386"],
+  ["Ducky Dinner", "https://www.replacements.com/china-stangl-ducky-dinner/c/98390"],
+  ["El Rosa", "https://www.replacements.com/china-stangl-el-rosa/c/98392"],
+  ["Fairlawn", "https://www.replacements.com/china-stangl-fairlawn/c/98394"],
+  ["Festival (Coupe)", "https://www.replacements.com/china-stangl-festival-coupe/c/98395"],
+  ["Festival (Rim)", "https://www.replacements.com/china-stangl-festival-rim/c/98396"],
+  ["First Love", "https://www.replacements.com/china-stangl-first-love/c/98398"],
+  ["Flora", "https://www.replacements.com/china-stangl-flora/c/98399"],
+  ["Frosted Fruit", "https://www.replacements.com/china-stangl-frosted-fruit/c/98403"],
+  ["Fruit (Brown Trim)", "https://www.replacements.com/china-stangl-fruit-brown-trim/c/98404"],
+  ["Fruit (Terra Rose Line)", "https://www.replacements.com/china-stangl-fruit-terra-rose-line/c/98405"],
+  ["Fruit (White Background, Not Carved)", "https://www.replacements.com/china-stangl-fruit-white-background-not-carved/c/147115"],
+  ["Fruit (Yellow Trim)", "https://www.replacements.com/china-stangl-fruit-yellow-trim/c/146132"],
+  ["Fruit & Flowers", "https://www.replacements.com/china-stangl-fruit-flowers/c/98402"],
+  ["Garden Flower", "https://www.replacements.com/china-stangl-garden-flower/c/98406"],
+  ["Garden Flower (Terra Rose)", "https://www.replacements.com/china-stangl-garden-flower-terra-rose/c/98407"],
+  ["Garland", "https://www.replacements.com/china-stangl-garland/c/98409"],
+  ["Ginger Cat", "https://www.replacements.com/china-stangl-ginger-cat/c/98410"],
+  ["Golden Blossom (Brown Trim, Yellow Band)", "https://www.replacements.com/china-stangl-golden-blossom-brown-trim-yellow-band/c/98412"],
+  ["Golden Blossom (Yellow Band)", "https://www.replacements.com/china-stangl-golden-blossom-yellow-band/c/98413"],
+  ["Golden Grape", "https://www.replacements.com/china-stangl-golden-grape/c/98414"],
+  ["Golden Harvest", "https://www.replacements.com/china-stangl-golden-harvest/c/98415"],
+  ["Granada Gold (Gold on Tan Body)", "https://www.replacements.com/china-stangl-granada-gold-gold-on-tan-body/c/98417"],
+  ["Grape", "https://www.replacements.com/china-stangl-grape/c/98416"],
+  ["Harvest", "https://www.replacements.com/china-stangl-harvest/c/98418"],
+  ["Holly", "https://www.replacements.com/china-stangl-holly/c/98420"],
+  ["Humpty Dumpty", "https://www.replacements.com/china-stangl-humpty-dumpty/c/98421"],
+  ["Indian Campfire", "https://www.replacements.com/china-stangl-indian-campfire/c/98422"],
+  ["Inspiration", "https://www.replacements.com/china-stangl-inspiration/c/98423"],
+  ["Jersey Shore", "https://www.replacements.com/china-stangl-jersey-shore/c/193746"],
+  ["Jewelled Christmas Tree", "https://www.replacements.com/china-stangl-jewelled-christmas-tree/c/98424"],
+  ["Kitten Capers", "https://www.replacements.com/china-stangl-kitten-capers/c/98425"],
+  ["Little Bo Peep (Pink Band)", "https://www.replacements.com/china-stangl-little-bo-peep-pink-band/c/98430"],
+  ["Little Boy Blue (Blue Band)", "https://www.replacements.com/china-stangl-little-boy-blue-blue-band/c/98429"],
+  ["Little Quackers", "https://www.replacements.com/china-stangl-little-quackers/c/98431"],
+  ["Lyric", "https://www.replacements.com/china-stangl-lyric/c/98432"],
+  ["Magnolia", "https://www.replacements.com/china-stangl-magnolia/c/98433"],
+  ["Mediterranean", "https://www.replacements.com/china-stangl-mediterranean/c/98435"],
+  ["Mountain Laurel", "https://www.replacements.com/china-stangl-mountain-laurel/c/98438"],
+  ["Mountain Laurel (Terra Rosa)", "https://www.replacements.com/china-stangl-mountain-laurel-terra-rosa/c/98439"],
+  ["New Tulip Yellow", "https://www.replacements.com/china-stangl-new-tulip-yellow/c/98499"],
+  ["Orchard Song", "https://www.replacements.com/china-stangl-orchard-song/c/98441"],
+  ["Orchard Song (variant)", "https://www.replacements.com/china-stangl-orchard-song/c/148685"],
+  ["Peter Rabbit (Dark Green Band)", "https://www.replacements.com/china-stangl-peter-rabbit-dark-green-band/c/98445"],
+  ["Petite Flowers", "https://www.replacements.com/china-stangl-petite-flowers/c/98444"],
+  ["Pink Dogwood", "https://www.replacements.com/china-stangl-pink-dogwood/c/98448"],
+  ["Pony Trail", "https://www.replacements.com/china-stangl-pony-trail/c/98453"],
+  ["Prelude", "https://www.replacements.com/china-stangl-prelude/c/98454"],
+  ["Provincial", "https://www.replacements.com/china-stangl-provincial/c/98455"],
+  ["Ranger", "https://www.replacements.com/china-stangl-ranger/c/98457"],
+  ["Ranger Boy", "https://www.replacements.com/china-stangl-ranger-boy/c/98456"],
+  ["Rooster", "https://www.replacements.com/china-stangl-rooster/c/98459"],
+  ["Sculptured Fruit", "https://www.replacements.com/china-stangl-sculptured-fruit/c/98462"],
+  ["Sculptured Fruit (variant)", "https://www.replacements.com/china-stangl-sculptured-fruit/c/151249"],
+  ["Sportsmen's Giftware", "https://www.replacements.com/china-stangl-sportsmens-giftware/c/130785"],
+  ["Star Flower", "https://www.replacements.com/china-stangl-star-flower/c/98469"],
+  ["Stardust", "https://www.replacements.com/china-stangl-stardust/c/98468"],
+  ["Sun Pebbles", "https://www.replacements.com/china-stangl-sun-pebbles/c/98477"],
+  ["Thistle (Green Thistle)", "https://www.replacements.com/china-stangl-thistle-green-thistle/c/131471"],
+  ["Thistle (Pink Thistle)", "https://www.replacements.com/china-stangl-thistle-pink-thistle/c/98479"],
+  ["Tiger Lily", "https://www.replacements.com/china-stangl-tiger-lily/c/98480"],
+  ["Town & Country Black", "https://www.replacements.com/china-stangl-town-country-black/c/98482"],
+  ["Town & Country Blue", "https://www.replacements.com/china-stangl-town-country-blue/c/98481"],
+  ["Town & Country Brown", "https://www.replacements.com/china-stangl-town-country-brown/c/98483"],
+  ["Town & Country Green", "https://www.replacements.com/china-stangl-town-country-green/c/98484"],
+  ["Town & Country Orange", "https://www.replacements.com/china-stangl-town-country-orange/c/98485"],
+  ["Town & Country Yellow", "https://www.replacements.com/china-stangl-town-country-yellow/c/98486"],
+  ["Tulip Blue", "https://www.replacements.com/china-stangl-tulip-blue/c/98489"],
+  ["Tulip Blue (Terra Rose Line)", "https://www.replacements.com/china-stangl-tulip-blue-terra-rose-line/c/98490"],
+  ["Tulip Yellow (Not Terra Rose Line)", "https://www.replacements.com/china-stangl-tulip-yellow-not-terra-rose-line/c/98492"],
+  ["Tulip Yellow (Terra Rose Line)", "https://www.replacements.com/china-stangl-tulip-yellow-terra-rose-line/c/98491"],
+  ["White Dogwood", "https://www.replacements.com/china-stangl-white-dogwood/c/98493"],
+  ["White Dogwood (variant)", "https://www.replacements.com/china-stangl-white-dogwood/c/149010"],
+  ["Wild Rose", "https://www.replacements.com/china-stangl-wild-rose/c/98496"]
+];
+
+const pieceTypes = [
+  "Dinner Plate (10\")", "Salad Plate (8\")", "Bread & Butter Plate (6\")",
+  "Cup", "Saucer", "Fruit / Dessert Bowl", "Cereal / Soup Bowl", "Coupe Soup Bowl",
+  "Chop Plate / Round Platter (12\"-14\")", "Oval Serving Platter", "Oval Vegetable Bowl",
+  "Round Vegetable Bowl", "Divided Vegetable Dish", "Gravy Boat", "Gravy Boat Underplate",
+  "Creamer", "Sugar Bowl with Lid", "Teapot", "Coffee Pot", "Salt & Pepper Shakers",
+  "Butter Dish", "Egg Cup", "Ashtray", "Mug", "Pitcher", "Casserole Dish with Lid"
+];
+
+const PEOPLE = ["cord", "mom"];
+const SITE_PASSWORD = "zindulka";
+
+let fbStorage = null;
+let view = "home";
+let currentPatternIndex = null;
+
+function slug(s) { return s.toLowerCase().replace(/[^a-z0-9]+/g, '-'); }
+
+function initFirebase() {
+  const placeholder = "YOUR_FIREBASE";
+  const configValues = Object.values(firebaseConfig);
+  if (configValues.some(v => v.includes(placeholder))) {
+    return false;
+  }
+  firebase.initializeApp(firebaseConfig);
+  fbStorage = firebase.storage();
+  return true;
+}
+
+function photoPath(patternSlug, pieceSlug, person) {
+  return `${patternSlug}--${pieceSlug}--${person}.jpg`;
+}
+
+async function loadInventory() {
+  if (!fbStorage) return null;
+  const countsByPiece = {};
+  const countsByPattern = {};
+  pieceTypes.forEach(p => countsByPiece[slug(p)] = { cord: 0, mom: 0 });
+  patterns.forEach(([name]) => countsByPattern[slug(name)] = { cord: 0, mom: 0 });
+
+  try {
+    const result = await fbStorage.ref().listAll();
+    result.items.forEach(itemRef => {
+      const match = itemRef.name.match(/^(.+)--(.+)--(cord|mom)\.jpg$/);
+      if (!match) return;
+      const [, pSlug, pieceSlug, person] = match;
+      if (countsByPattern[pSlug]) countsByPattern[pSlug][person]++;
+      if (countsByPiece[pieceSlug]) countsByPiece[pieceSlug][person]++;
+    });
+  } catch (err) {
+    console.error("Inventory load failed", err);
+    return null;
+  }
+
+  return { countsByPiece, countsByPattern };
+}
+
+function setHeader(title, sub, showBack) {
+  document.getElementById('headerTitle').textContent = title;
+  document.getElementById('headerSub').textContent = sub;
+  const existingBtn = document.getElementById('backBtn');
+  if (existingBtn) existingBtn.remove();
+  if (showBack) {
+    const btn = document.createElement('button');
+    btn.id = 'backBtn';
+    btn.className = 'back-btn';
+    btn.textContent = '\u2190 Patterns';
+    btn.onclick = () => { view = 'home'; renderApp(); };
+    document.getElementById('headerBar').appendChild(btn);
+  }
+}
+
+function groupByLetter(list) {
+  const groups = {};
+  list.forEach(item => {
+    const letter = item[0][0].toUpperCase();
+    if (!groups[letter]) groups[letter] = [];
+    groups[letter].push(item);
+  });
+  return groups;
+}
+
+function renderHome() {
+  setHeader("Stangl Stash: Mom and Cord's Stangl Collections", "Tap a pattern to open Cord's & Mom's piece checklist", false);
+  const app = document.getElementById('app');
+  app.innerHTML = `
+    <div class="home-layout">
+      <aside class="dashboard-panel">
+        <img src="mom-and-cord.jpg" alt="Mom and Cord" class="home-photo">
+        <h2 class="panel-heading">Dashboard</h2>
+        <div id="dashboardContent" class="dashboard-content">
+          <p class="dashboard-loading">Loading counts...</p>
+        </div>
+        <button id="refreshDashboard" class="refresh-btn">Refresh counts</button>
+      </aside>
+      <div class="panel-divider"></div>
+      <section class="collections-panel">
+        <div class="controls">
+          <input type="text" id="searchBox" placeholder="Search patterns...">
+        </div>
+        <main id="main"></main>
+      </section>
+    </div>
+    <footer>Photos uploaded here are stored in your Firebase project and visible to anyone with this site's link. Piece list is a standard generic set &mdash; not every pattern was produced in every piece type.</footer>
+  `;
+  document.getElementById('searchBox').addEventListener('input', renderPatternList);
+  document.getElementById('refreshDashboard').addEventListener('click', renderDashboard);
+  renderPatternList();
+  renderDashboard();
+}
+
+let charts = { donutCord: null, donutMom: null, pieceChart: null, patternChart: null };
+
+async function renderDashboard() {
+  const content = document.getElementById('dashboardContent');
+  if (!fbStorage) {
+    content.innerHTML = '<p class="dashboard-note">Connect Firebase (see setup notes at the top of this file) to see live counts.</p>';
+    return;
+  }
+  content.innerHTML = '<p class="dashboard-loading">Loading counts...</p>';
+  const inv = await loadInventory();
+  if (!inv) {
+    content.innerHTML = '<p class="dashboard-note">Could not load counts. Check your Firebase setup and Storage rules.</p>';
+    return;
+  }
+
+  const totalPossiblePerPerson = patterns.length * pieceTypes.length;
+  let cordTotal = 0, momTotal = 0;
+  Object.values(inv.countsByPattern).forEach(c => { cordTotal += c.cord; momTotal += c.mom; });
+  const cordPct = totalPossiblePerPerson ? Math.round((cordTotal / totalPossiblePerPerson) * 100) : 0;
+  const momPct = totalPossiblePerPerson ? Math.round((momTotal / totalPossiblePerPerson) * 100) : 0;
+
+  content.innerHTML = `
+    <h3 class="dash-subheading">Overall Completion</h3>
+    <div class="dash-donuts">
+      <div class="donut-wrap">
+        <canvas id="donutCord" height="110"></canvas>
+        <div class="donut-pct cord">${cordPct}%</div>
+        <div class="donut-name">Cord (${cordTotal}/${totalPossiblePerPerson})</div>
+      </div>
+      <div class="donut-wrap">
+        <canvas id="donutMom" height="110"></canvas>
+        <div class="donut-pct mom">${momPct}%</div>
+        <div class="donut-name">Mom (${momTotal}/${totalPossiblePerPerson})</div>
+      </div>
+    </div>
+
+    <h3 class="dash-subheading">By Piece Type</h3>
+    <div class="dash-legend">
+      <span class="dash-legend-item"><span class="dash-legend-swatch cord"></span>Cord</span>
+      <span class="dash-legend-item"><span class="dash-legend-swatch mom"></span>Mom</span>
+    </div>
+    <div class="dash-chart-scroll">
+      <canvas id="pieceChart"></canvas>
+    </div>
+
+    <h3 class="dash-subheading">By Collection</h3>
+    <div class="dash-chart-scroll">
+      <canvas id="patternChart"></canvas>
+    </div>
+  `;
+
+  Object.values(charts).forEach(c => { if (c) c.destroy(); });
+
+  const cordColor = getComputedStyle(document.documentElement).getPropertyValue('--cord').trim() || '#14213d';
+  const momColor = getComputedStyle(document.documentElement).getPropertyValue('--mom').trim() || '#a5473c';
+  const trackColor = '#e2dccb';
+
+  function makeDonut(canvasId, ownedCount, total, color) {
+    const ctx = document.getElementById(canvasId);
+    return new Chart(ctx, {
+      type: 'doughnut',
+      data: {
+        datasets: [{
+          data: [ownedCount, Math.max(total - ownedCount, 0)],
+          backgroundColor: [color, trackColor],
+          borderWidth: 0
+        }]
+      },
+      options: {
+        cutout: '72%',
+        responsive: true,
+        plugins: { legend: { display: false }, tooltip: { enabled: false } },
+        animation: false
+      }
+    });
+  }
+
+  charts.donutCord = makeDonut('donutCord', cordTotal, totalPossiblePerPerson, cordColor);
+  charts.donutMom = makeDonut('donutMom', momTotal, totalPossiblePerPerson, momColor);
+
+  function makeBarChart(canvasId, labels, cordData, momData, rowHeight) {
+    const canvas = document.getElementById(canvasId);
+    canvas.height = Math.max(labels.length * rowHeight, 120);
+    return new Chart(canvas, {
+      type: 'bar',
+      data: {
+        labels: labels,
+        datasets: [
+          { label: 'Cord', data: cordData, backgroundColor: cordColor },
+          { label: 'Mom', data: momData, backgroundColor: momColor }
+        ]
+      },
+      options: {
+        indexAxis: 'y',
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: { legend: { display: false } },
+        scales: {
+          x: { beginAtZero: true, ticks: { stepSize: 1, font: { size: 9 } } },
+          y: { ticks: { font: { size: 9 } } }
+        }
+      }
+    });
+  }
+
+  charts.pieceChart = makeBarChart(
+    'pieceChart',
+    pieceTypes,
+    pieceTypes.map(p => (inv.countsByPiece[slug(p)] || {}).cord || 0),
+    pieceTypes.map(p => (inv.countsByPiece[slug(p)] || {}).mom || 0),
+    26
+  );
+
+  charts.patternChart = makeBarChart(
+    'patternChart',
+    patterns.map(([name]) => name),
+    patterns.map(([name]) => (inv.countsByPattern[slug(name)] || {}).cord || 0),
+    patterns.map(([name]) => (inv.countsByPattern[slug(name)] || {}).mom || 0),
+    16
+  );
+}
+
+function renderPatternList() {
+  const searchTerm = (document.getElementById('searchBox')?.value || '').toLowerCase();
+  const filtered = patterns.filter(([name]) => name.toLowerCase().includes(searchTerm));
+  const groups = groupByLetter(filtered);
+  const letters = Object.keys(groups).sort();
+  const main = document.getElementById('main');
+  main.innerHTML = '';
+
+  if (letters.length === 0) {
+    main.innerHTML = '<div class="empty-note">No patterns match your search.</div>';
+  }
+
+  letters.forEach(letter => {
+    const heading = document.createElement('h2');
+    heading.className = 'letter-heading';
+    heading.textContent = letter;
+    main.appendChild(heading);
+
+    const rowsGrid = document.createElement('div');
+    rowsGrid.className = 'letter-rows-grid';
+
+    groups[letter].forEach(([name, url]) => {
+      const row = document.createElement('div');
+      row.className = 'pattern-row';
+      row.innerHTML = `
+        <span class="pattern-name">${name}</span>
+        <a class="ext-link" href="${url}" target="_blank" rel="noopener noreferrer" title="View photo">\u2197</a>
+      `;
+      row.querySelector('.pattern-name').addEventListener('click', () => openDetail(name));
+      rowsGrid.appendChild(row);
+    });
+
+    main.appendChild(rowsGrid);
+  });
+}
+
+function openDetail(name) {
+  currentPatternIndex = patterns.findIndex(p => p[0] === name);
+  view = 'detail';
+  renderApp();
+}
+
+function renderDetail() {
+  const [name, url] = patterns[currentPatternIndex];
+  setHeader(name, 'Piece checklist \u2014 Cord & Mom', true);
+
+  const app = document.getElementById('app');
+  app.innerHTML = `
+    <div class="detail-header-block">
+      <a class="detail-link" href="${url}" target="_blank" rel="noopener noreferrer">View pattern photo on Replacements.com \u2197</a>
+      ${!fbStorage ? '<div class="config-warning">Photo uploads are not active yet. Add your Firebase config near the top of this file to enable saving.</div>' : ''}
+    </div>
+    <main id="pieceList"></main>
+  `;
+
+  const pSlug = slug(name);
+  const list = document.getElementById('pieceList');
+  list.innerHTML = '';
+
+  pieceTypes.forEach(piece => {
+    const pieceSlug = slug(piece);
+    const block = document.createElement('div');
+    block.className = 'piece-block';
+    block.innerHTML = `
+      <p class="piece-title">${piece}</p>
+      <div class="person-row">
+        ${PEOPLE.map(person => `
+          <div class="person-col">
+            <div class="person-label ${person}">${person === 'cord' ? 'Cord' : 'Mom'}</div>
+            <div class="photo-slot" id="slot-${pSlug}-${pieceSlug}-${person}">
+              <span class="upload-label">Tap to upload</span>
+              <input type="file" accept="image/*" id="file-${pSlug}-${pieceSlug}-${person}">
+            </div>
+          </div>
+        `).join('')}
+      </div>
+    `;
+    list.appendChild(block);
+    PEOPLE.forEach(person => setupSlot(pSlug, pieceSlug, person));
+  });
+}
+
+function setupSlot(pSlug, pieceSlug, person) {
+  const slotId = `slot-${pSlug}-${pieceSlug}-${person}`;
+  const fileId = `file-${pSlug}-${pieceSlug}-${person}`;
+  const slot = document.getElementById(slotId);
+  const fileInput = document.getElementById(fileId);
+  const path = photoPath(pSlug, pieceSlug, person);
+
+  slot.addEventListener('click', () => {
+    if (slot.querySelector('img')) return;
+    if (fbStorage) {
+      const currentFileInput = document.getElementById(fileId);
+      if (currentFileInput) currentFileInput.click();
+    }
+  });
+
+  fileInput.addEventListener('change', async () => {
+    const file = fileInput.files[0];
+    if (!file) return;
+    slot.classList.add('uploading');
+    slot.querySelector('.upload-label').textContent = 'Uploading...';
+    try {
+      const ref = fbStorage.ref().child(path);
+      await ref.put(file);
+      const url = await ref.getDownloadURL();
+      showPhoto(slot, url, path);
+    } catch (err) {
+      slot.querySelector('.upload-label').textContent = 'Upload failed \u2014 tap to retry';
+      slot.classList.remove('uploading');
+      console.error(err);
+    }
+  });
+
+  if (fbStorage) {
+    fbStorage.ref().child(path).getDownloadURL()
+      .then(url => showPhoto(slot, url, path))
+      .catch(() => { /* no photo yet, leave upload prompt */ });
+  }
+}
+
+function resetSlotToUpload(slot, fileId) {
+  slot.classList.remove('uploading');
+  slot.style.cursor = 'pointer';
+  slot.innerHTML = `
+    <span class="upload-label">Tap to upload</span>
+    <input type="file" accept="image/*" id="${fileId}">
+  `;
+  const newFileInput = document.getElementById(fileId);
+  return newFileInput;
+}
+
+function showPhoto(slot, url, path) {
+  slot.classList.remove('uploading');
+  slot.innerHTML = `
+    <img src="${url}" alt="">
+    <button class="delete-photo-btn" type="button" title="Delete photo">&times;</button>
+  `;
+  slot.style.cursor = 'pointer';
+
+  const img = slot.querySelector('img');
+  img.addEventListener('click', (e) => {
+    e.stopPropagation();
+    openLightbox(url);
+  });
+
+  const deleteBtn = slot.querySelector('.delete-photo-btn');
+  deleteBtn.addEventListener('click', async (e) => {
+    e.stopPropagation();
+    if (!confirm('Delete this photo?')) return;
+    deleteBtn.disabled = true;
+    deleteBtn.textContent = '\u2026';
+    try {
+      await fbStorage.ref().child(path).delete();
+      const fileId = slot.id.replace('slot-', 'file-');
+      const newFileInput = resetSlotToUpload(slot, fileId);
+      newFileInput.addEventListener('change', async () => {
+        const file = newFileInput.files[0];
+        if (!file) return;
+        slot.classList.add('uploading');
+        slot.querySelector('.upload-label').textContent = 'Uploading...';
+        try {
+          const ref = fbStorage.ref().child(path);
+          await ref.put(file);
+          const newUrl = await ref.getDownloadURL();
+          showPhoto(slot, newUrl, path);
+        } catch (err) {
+          slot.querySelector('.upload-label').textContent = 'Upload failed \u2014 tap to retry';
+          slot.classList.remove('uploading');
+          console.error(err);
+        }
+      });
+    } catch (err) {
+      alert('Could not delete photo. Check your connection and try again.');
+      deleteBtn.disabled = false;
+      deleteBtn.textContent = '\u00d7';
+      console.error(err);
+    }
+  });
+}
+
+function openLightbox(src) {
+  document.getElementById('lightboxImg').src = src;
+  document.getElementById('lightbox').classList.add('open');
+}
+
+document.getElementById('lightboxClose').addEventListener('click', () => {
+  document.getElementById('lightbox').classList.remove('open');
+});
+document.getElementById('lightbox').addEventListener('click', (e) => {
+  if (e.target.id === 'lightbox') document.getElementById('lightbox').classList.remove('open');
+});
+
+function renderApp() {
+  if (view === 'home') renderHome();
+  else renderDetail();
+}
+
+function initPasswordGate() {
+  const gate = document.getElementById('passwordGate');
+  const input = document.getElementById('passwordInput');
+  const submitBtn = document.getElementById('passwordSubmit');
+  const errorMsg = document.getElementById('passwordError');
+
+  if (sessionStorage.getItem('stangl_unlocked') === 'true') {
+    gate.style.display = 'none';
+    return;
+  }
+
+  function tryPassword() {
+    if (input.value === SITE_PASSWORD) {
+      sessionStorage.setItem('stangl_unlocked', 'true');
+      gate.style.display = 'none';
+    } else {
+      errorMsg.textContent = 'Incorrect password, try again.';
+      input.value = '';
+    }
+  }
+
+  submitBtn.addEventListener('click', tryPassword);
+  input.addEventListener('keypress', (e) => { if (e.key === 'Enter') tryPassword(); });
+  input.focus();
+}
+
+(function init() {
+  initPasswordGate();
+  initFirebase();
+  renderApp();
+})();
+</script>
+
+</body>
+</html>
