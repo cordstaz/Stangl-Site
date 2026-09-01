@@ -1,0 +1,2841 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Stangl Stash</title>
+
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#241811">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Stangl Stash">
+<meta name="mobile-web-app-capable" content="yes">
+
+<!--
+  =====================================================================
+  SETUP INSTRUCTIONS (do this before uploads/dashboard will work)
+  =====================================================================
+  1. Go to https://console.firebase.google.com, create a free project.
+  2. In the project: Build -> Storage -> Get Started -> choose default
+     settings (test mode is fine to start).
+  3. Storage -> Rules tab -> replace the rules with something like this,
+     then click Publish. This allows anyone with the link to read/write
+     photos (there's no login system on this site, so treat the link
+     itself as the "password"):
+       rules_version = '2';
+       service firebase.storage {
+         match /b/{bucket}/o {
+           match /{allPaths=**} {
+             allow read, write: if true;
+           }
+         }
+       }
+  4. Project Settings (gear icon) -> General -> scroll to "Your apps" ->
+     click the web icon (</>) -> register an app (nickname is up to you,
+     no hosting needed) -> copy the firebaseConfig object it gives you.
+  5. Paste your real values into the firebaseConfig object right below
+     this comment, replacing the placeholder text.
+  6. Commit this file (as index.html), stangl-stash-logo.png,
+     manifest.json, sw.js, icon-192.png, icon-512.png,
+     icon-512-maskable.png, and apple-touch-icon.png (all in the SAME
+     folder) to your GitHub repo, point your Namecheap domain at GitHub
+     Pages, and reload the live site.
+  =====================================================================
+-->
+<!-- This build reads photo upload timestamps to show an "Uploads Over
+     Time" chart. If you have photos already uploaded from before this
+     change, Firebase still has their original upload timestamps, so
+     the chart will backfill correctly once you refresh. -->
+<!-- PWA / "Add to Home Screen": this page is installable as an app icon
+     on phones (manifest.json + sw.js). The "Get the App" button at the
+     top of every page handles this automatically on Android; on iPhone
+     it shows instructions since Apple doesn't allow auto-install. -->
+<!-- This build reads photo upload timestamps to show an "Uploads Over
+     Time" chart. If you have photos already uploaded from before this
+     change, Firebase still has their original upload timestamps, so
+     the chart will backfill correctly once you refresh. -->
+
+<script>
+  const firebaseConfig = {
+    apiKey: "AIzaSyAX6bhHxrRPkGZI5DfCsP7h3uKaKGPr8us",
+    authDomain: "stangl-stash.firebaseapp.com",
+    projectId: "stangl-stash",
+    storageBucket: "stangl-stash.firebasestorage.app",
+    messagingSenderId: "731102055344",
+    appId: "1:731102055344:web:faba64979629d259a06475"
+  };
+</script>
+
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-storage-compat.js"></script>
+<script>
+  // Chart.js is only loaded from a single CDN by default, and if that
+  // specific host is blocked or unreachable on a given network (corporate
+  // firewall, an extension, a regional outage), the script just silently
+  // never arrives -- no error on the page, charts simply never draw. This
+  // tries a few different well-known CDNs in order until one works.
+  (function loadChartJs(urls, i) {
+    if (i >= urls.length) {
+      console.error('Chart.js failed to load from every CDN source tried.');
+      return;
+    }
+    const s = document.createElement('script');
+    s.src = urls[i];
+    s.onerror = () => loadChartJs(urls, i + 1);
+    document.head.appendChild(s);
+  })([
+    'https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.4/chart.umd.min.js',
+    'https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js',
+    'https://unpkg.com/chart.js@4.4.4/dist/chart.umd.min.js'
+  ], 0);
+</script>
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,600;1,9..144,500&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+
+<style>
+  :root {
+    --ink: #241811;
+    --ink-2: #382719;
+    --ink-3: #4a3521;
+    --ember: #ad6239;
+    --ember-dim: rgba(173, 98, 57, 0.16);
+    --gold: #c1954f;
+    --sage: #4f7079;
+    --rose: #b3565a;
+    --teal: #3f7a72;
+    --plum: #6b4c7a;
+    --slate: #5c7a94;
+    --cream: #f2ead9;
+    --cream-dim: rgba(242, 234, 217, 0.62);
+    --cream-faint: rgba(242, 234, 217, 0.38);
+    --line: rgba(242, 234, 217, 0.16);
+    --cord: var(--gold);
+    --mom: var(--sage);
+    --grandma: var(--rose);
+    --radius-lg: 20px;
+    --radius-md: 14px;
+    --radius-sm: 9px;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: 'Inter', system-ui, sans-serif;
+    background: var(--ink);
+    color: var(--cream);
+    -webkit-font-smoothing: antialiased;
+  }
+  h1, h2, h3, .serif { font-family: 'Fraunces', Georgia, serif; }
+
+  .bg-rings {
+    position: fixed;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    z-index: -1;
+    pointer-events: none;
+  }
+
+  header {
+    background:
+      radial-gradient(ellipse 700px 260px at 50% 0%, rgba(201,106,48,0.4) 0%, rgba(201,106,48,0) 65%),
+      linear-gradient(180deg, #7a3818 0%, var(--ink) 92%);
+    color: var(--cream);
+    padding: 22px 16px 18px;
+    text-align: center;
+    position: relative;
+    border-bottom: 1px solid var(--line);
+  }
+  .masthead {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-bottom: 16px;
+  }
+  .masthead-logo {
+    width: 150px; height: 150px; border-radius: 50%; object-fit: cover;
+    box-shadow: 0 10px 26px rgba(0,0,0,0.45);
+  }
+  @media (max-width: 700px) {
+    header { padding: 16px 12px 14px; }
+    .masthead { margin-bottom: 10px; }
+    .masthead-logo { width: 92px; height: 92px; }
+    header h1 { font-size: 1.2rem; }
+    header p { font-size: 0.78rem; }
+  }
+  header h1 {
+    margin: 0 0 5px;
+    font-size: 1.6rem;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+  }
+  header p { margin: 0; color: var(--cream-dim); font-size: 0.85rem; font-family: 'Inter', sans-serif; }
+
+  .floating-nav {
+    position: fixed;
+    left: 16px;
+    bottom: 16px;
+    z-index: 400;
+    display: flex;
+    gap: 8px;
+    background: var(--ink-2);
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    padding: 6px;
+    box-shadow: 0 8px 22px rgba(0,0,0,0.45);
+  }
+  .floating-nav-btn {
+    background: none;
+    border: none;
+    color: var(--cream-dim);
+    padding: 9px 16px;
+    border-radius: 999px;
+    font-family: 'Inter', sans-serif;
+    font-size: 0.8rem;
+    font-weight: 500;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: background 0.15s, color 0.15s;
+  }
+  .floating-nav-btn:hover { color: var(--ember); background: var(--ember-dim); }
+  .floating-nav-btn.active {
+    background: var(--ember);
+    color: var(--ink);
+    font-weight: 600;
+  }
+  .floating-nav-btn.active:hover { background: #c18557; }
+  @media (max-width: 480px) {
+    .floating-nav { gap: 4px; padding: 5px; max-width: calc(100vw - 24px); }
+    .floating-nav-btn { padding: 8px 10px; font-size: 0.7rem; }
+  }
+
+  .site-nav {
+    display: flex;
+    justify-content: center;
+    gap: 10px;
+    flex-wrap: wrap;
+    margin-top: 16px;
+  }
+  .nav-btn {
+    background: none;
+    border: 1px solid var(--line);
+    color: var(--cream-dim);
+    padding: 9px 18px;
+    border-radius: 999px;
+    font-family: 'Inter', sans-serif;
+    font-size: 0.85rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: background 0.15s, border-color 0.15s, color 0.15s;
+  }
+  .nav-btn:hover { border-color: var(--ember); color: var(--ember); background: var(--ember-dim); }
+  .nav-btn.active {
+    background: var(--ember);
+    border-color: var(--ember);
+    color: var(--ink);
+    font-weight: 600;
+  }
+  .nav-btn.active:hover { background: #c18557; border-color: #c18557; }
+  @media (max-width: 700px) {
+    .site-nav { flex-wrap: nowrap; gap: 6px; margin-top: 12px; }
+    .nav-btn {
+      flex: 1; padding: 8px 4px; font-size: 0.68rem; border-radius: 10px;
+      line-height: 1.25; white-space: normal;
+    }
+  }
+
+  .install-btn {
+    position: absolute;
+    top: 16px;
+    right: 16px;
+    z-index: 5;
+    padding: 12px 22px;
+    background: var(--ember);
+    border: none;
+    color: var(--ink);
+    font-family: 'Inter', sans-serif;
+    font-size: 0.9rem;
+    font-weight: 700;
+    border-radius: 999px;
+    cursor: pointer;
+    box-shadow: 0 8px 20px rgba(0,0,0,0.4);
+    transition: background 0.15s, transform 0.1s;
+  }
+  .install-btn:hover { background: #c18557; }
+  .install-btn:active { transform: scale(0.98); }
+  .install-btn[hidden] { display: none; }
+  @media (max-width: 700px) {
+    .install-btn {
+      position: static; display: block; margin: 14px auto 0;
+      padding: 10px 16px; font-size: 0.78rem;
+    }
+  }
+
+  .install-modal-overlay {
+    position: fixed; inset: 0; background: rgba(15,6,5,0.85);
+    display: none; align-items: center; justify-content: center; z-index: 1001; padding: 20px;
+  }
+  .install-modal-overlay.open { display: flex; }
+  .install-modal-box {
+    background: var(--cream); color: var(--ink); border-radius: var(--radius-lg);
+    padding: 32px 26px; max-width: 380px; width: 100%; position: relative;
+    box-shadow: 0 20px 50px rgba(0,0,0,0.45); text-align: left;
+  }
+  .install-modal-box h3 {
+    margin: 0 0 14px; font-family: 'Fraunces', serif; font-size: 1.3rem;
+  }
+  .install-modal-box p {
+    margin: 0 0 10px; font-family: 'Inter', sans-serif; font-size: 0.92rem; line-height: 1.5; color: #4a382f;
+  }
+  .install-modal-box strong { color: var(--ink); }
+  .install-modal-close {
+    position: absolute; top: 14px; right: 16px; background: none; border: none;
+    font-size: 1.6rem; line-height: 1; cursor: pointer; color: #4a382f;
+  }
+
+  .page-subtitle {
+    text-align: center; font-family: 'Fraunces', serif; font-size: 1.5rem; font-weight: 600;
+    color: var(--cream); margin: 26px auto 0; max-width: 1800px; padding: 0 20px;
+  }
+  .page-panel {
+    max-width: 1800px; margin: 24px auto 20px; padding: 22px;
+    background: var(--ink-2); border: 1px solid var(--line); border-radius: var(--radius-lg);
+    box-shadow: 0 12px 32px rgba(0,0,0,0.35);
+    overflow-x: hidden;
+  }
+  canvas { max-width: 100%; }
+  .panel-heading {
+    font-size: 1.15rem; font-weight: 600; color: var(--cream); margin: 0 0 14px;
+    border-bottom: none; padding-bottom: 0;
+  }
+  .dashboard-loading, .dashboard-note { font-size: 0.85rem; color: var(--cream-dim); }
+  .dash-donuts { display: flex; gap: 12px; margin: 0 auto 8px; max-width: 1080px; flex-wrap: nowrap; justify-content: center; }
+  .donut-wrap {
+    flex: 1 1 150px; min-width: 0; text-align: center; position: relative;
+    background: var(--ink-3); border-radius: var(--radius-md);
+    padding: 16px 8px 14px;
+  }
+  .donut-pct {
+    position: absolute; top: 42px; left: 0; right: 0; text-align: center;
+    font-size: 1.05rem; font-weight: 700; pointer-events: none; font-family: 'Fraunces', serif;
+  }
+  .donut-pct.cord { color: var(--cord); }
+  .donut-pct.mom { color: var(--mom); }
+  .donut-pct.grandma { color: var(--grandma); }
+  .donut-pct.together { color: var(--ember); }
+  .donut-name { font-size: 0.74rem; color: var(--cream-dim); margin-top: 8px; }
+  .overall-number {
+    font-family: 'Fraunces', serif; font-size: 2.1rem; font-weight: 700;
+    padding: 18px 0 2px;
+  }
+  .overall-number.cord { color: var(--cord); }
+  .overall-number.mom { color: var(--mom); }
+  .overall-number.grandma { color: var(--grandma); }
+  .overall-number.together { color: var(--ember); }
+  .overall-chart-outer { max-width: 840px; margin: 4px auto 8px; }
+  .dash-subheading {
+    font-size: 0.72rem; text-transform: uppercase; letter-spacing: 1.5px; color: var(--cream-faint);
+    font-weight: 600; margin: 20px 0 10px;
+  }
+  .dash-subheading-with-legend {
+    display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap;
+  }
+  .dash-subheading-center { text-align: center; }
+  .dash-chart-scroll {
+    max-height: 320px; overflow-y: auto; border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 10px 12px;
+    background: var(--ink-3);
+  }
+  .dash-chart-fixed {
+    height: 320px; max-height: none; display: flex; align-items: center; justify-content: center;
+  }
+  .dash-chart-fixed canvas { max-height: 100%; }
+  .dash-legend { display: flex; gap: 12px; font-size: 0.72rem; color: var(--cream-dim); text-transform: none; letter-spacing: normal; font-weight: 500; }
+  .dash-legend-item { display: flex; align-items: center; gap: 5px; }
+  .dash-legend-swatch { width: 10px; height: 10px; border-radius: 3px; display: inline-block; }
+  .dash-legend-swatch.cord { background: var(--cord); }
+  .dash-legend-swatch.mom { background: var(--mom); }
+  .dash-legend-swatch.grandma { background: var(--grandma); }
+  .refresh-btn {
+    width: 100%; margin-top: 16px; padding: 11px; border: 1px solid var(--line); background: none;
+    color: var(--cream-dim); border-radius: 999px; font-family: 'Inter', sans-serif; font-size: 0.85rem;
+    font-weight: 500; cursor: pointer; transition: border-color 0.15s, color 0.15s, background 0.15s;
+  }
+  .refresh-btn:hover { border-color: var(--ember); color: var(--ember); background: var(--ember-dim); }
+  .dashboard-grid-2col {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 28px;
+  }
+  @media (max-width: 900px) {
+    .dashboard-grid-2col { grid-template-columns: 1fr; }
+  }
+
+  .stat-strip { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 8px; }
+  .stat-card {
+    flex: 1; min-width: 130px; background: var(--ink-3); border-radius: var(--radius-md);
+    padding: 16px 10px; text-align: center;
+  }
+  .stat-card-number {
+    font-family: 'Fraunces', serif; font-size: 1.7rem; font-weight: 700; color: var(--ember);
+  }
+  .stat-card-number.c-ember { color: var(--ember); }
+  .stat-card-number.c-gold { color: var(--gold); }
+  .stat-card-number.c-sage { color: var(--sage); }
+  .stat-card-number.c-rose { color: var(--rose); }
+  .stat-card-number.c-teal { color: var(--teal); }
+  .stat-card-number.c-plum { color: var(--plum); }
+  .stat-card-number.c-slate { color: var(--slate); }
+  .stat-card-of { font-size: 1rem; color: var(--cream-faint); font-weight: 500; }
+  .stat-card-text { font-size: 1rem; line-height: 1.25; word-break: break-word; }
+  .stat-card-label {
+    font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.8px; color: var(--cream-dim);
+    margin-top: 4px;
+  }
+
+  .heat-grid-note { margin: -4px 0 10px; }
+  .heat-grid {
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(24px, 1fr)); gap: 4px;
+    margin-bottom: 8px;
+  }
+  .heat-tile {
+    aspect-ratio: 1; border-radius: 4px; cursor: pointer; transition: transform 0.1s;
+  }
+  .heat-tile:hover { transform: scale(1.2); }
+
+  .rank-list { display: flex; flex-direction: column; gap: 8px; }
+  .rank-row {
+    display: grid; grid-template-columns: 20px 1fr 70px 48px; align-items: center; gap: 8px;
+    cursor: pointer; padding: 4px 0;
+  }
+  .rank-num { font-family: 'Fraunces', serif; font-weight: 700; color: var(--cream-faint); font-size: 0.85rem; }
+  .rank-name {
+    font-size: 0.85rem; color: var(--cream); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .rank-bar-track {
+    height: 8px; background: var(--ink-3); border-radius: 999px; overflow: hidden;
+  }
+  .rank-bar-fill { height: 100%; background: var(--ember); border-radius: 999px; }
+  .rank-pct { font-size: 0.78rem; color: var(--cream-dim); text-align: right; }
+
+  .category-lookup {
+    border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 14px;
+    background: var(--ink-3);
+  }
+  .category-select {
+    width: 100%; padding: 11px 14px; border: 1px solid var(--line); border-radius: 999px;
+    font-family: 'Inter', sans-serif; font-size: 0.95rem; background: var(--ink-2); color: var(--cream);
+  }
+  .category-summary {
+    margin-top: 16px; padding-bottom: 12px; border-bottom: 1px solid var(--line);
+  }
+  .category-summary h4 {
+    margin: 0 0 8px; font-family: 'Fraunces', serif; font-size: 1.15rem; color: var(--cream); font-weight: 600;
+  }
+  .category-summary-stats {
+    display: flex; gap: 16px; flex-wrap: wrap; font-size: 0.85rem; font-weight: 600;
+  }
+  .category-summary-stats .cord { color: var(--cord); }
+  .category-summary-stats .mom { color: var(--mom); }
+  .category-summary-stats .grandma { color: var(--grandma); }
+  .category-summary-stats .together { color: var(--ember); }
+  .category-piece-list { margin-top: 12px; }
+  .category-piece-row {
+    display: grid; grid-template-columns: 1fr 60px 60px; align-items: center;
+    padding: 7px 4px; border-bottom: 1px solid var(--line); font-size: 0.85rem;
+  }
+  .category-piece-row:last-child { border-bottom: none; }
+  .category-piece-row:nth-child(even):not(.category-piece-header) {
+    background: rgba(242, 234, 217, 0.05);
+  }
+  .category-piece-header {
+    font-size: 0.72rem; text-transform: uppercase; letter-spacing: 1px; color: var(--cream-faint);
+    font-weight: 600; border-bottom: 1px solid var(--line);
+  }
+  .category-piece-name { color: var(--cream-dim); }
+  .category-piece-mark {
+    text-align: center; color: var(--cream-faint); font-weight: 700;
+  }
+  .category-piece-mark.cord.yes { color: var(--cord); }
+  .category-piece-mark.mom.yes { color: var(--mom); }
+  .category-piece-mark.grandma.yes { color: var(--grandma); }
+
+  .gallery-controls {
+    max-width: 1680px; margin: 18px auto 0; padding: 0 20px;
+    display: flex; gap: 10px; flex-wrap: wrap;
+  }
+  .gallery-controls input[type="text"] {
+    flex: 1; min-width: 200px; padding: 11px 14px;
+    border: 1px solid var(--line); border-radius: 999px; font-family: 'Inter', sans-serif; font-size: 0.95rem;
+    background: var(--ink-2); color: var(--cream);
+  }
+  .gallery-controls input[type="text"]::placeholder { color: var(--cream-faint); }
+  .gallery-controls select {
+    padding: 11px 14px; border: 1px solid var(--line); border-radius: 999px;
+    font-family: 'Inter', sans-serif; font-size: 0.9rem; background: var(--ink-2); color: var(--cream);
+  }
+  .gallery-grid {
+    max-width: 1680px; margin: 18px auto 40px; padding: 0 20px;
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 14px;
+  }
+  .gallery-tile {
+    background: var(--ink-2); border: 1px solid var(--line); border-radius: var(--radius-md); overflow: hidden;
+    box-shadow: 0 6px 18px rgba(0,0,0,0.25);
+  }
+  .gallery-thumb { aspect-ratio: 1; overflow: hidden; cursor: pointer; background: var(--ink-3); }
+  .gallery-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .gallery-caption { padding: 10px 12px; display: flex; flex-direction: column; gap: 2px; cursor: pointer; }
+  .gallery-caption:hover { background: var(--ink-3); }
+  .gallery-pattern { font-size: 0.85rem; color: var(--cream); font-weight: 600; font-family: 'Fraunces', serif; }
+  .gallery-piece { font-size: 0.74rem; color: var(--cream-dim); }
+  .gallery-person { font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.6px; font-weight: 700; }
+  .gallery-person.cord { color: var(--cord); }
+  .gallery-person.mom { color: var(--mom); }
+  .gallery-person.grandma { color: var(--grandma); }
+
+  .controls {
+    margin: 0 0 16px; padding: 0;
+    display: flex; gap: 10px; flex-wrap: wrap;
+  }
+  .controls input[type="text"] {
+    flex: 1; min-width: 160px; padding: 10px 14px;
+    border: 1px solid var(--line); border-radius: 999px; font-family: 'Inter', sans-serif; font-size: 0.95rem;
+    background: var(--ink-3); color: var(--cream);
+  }
+  .controls input[type="text"]::placeholder { color: var(--cream-faint); }
+  main { padding: 14px 16px 40px; }
+  .detail-content-grid {
+    display: grid; grid-template-columns: 1.6fr 1fr; gap: 28px;
+    max-width: 1400px; margin: 0 auto; padding: 14px 16px 40px;
+  }
+  .detail-mobile-tabs { display: none; }
+  @media (max-width: 900px) {
+    .detail-content-grid { grid-template-columns: 1fr; }
+    .detail-mobile-tabs {
+      display: flex; gap: 8px;
+      position: fixed; right: 16px; bottom: 16px; z-index: 400;
+      background: var(--ink-2); border: 1px solid var(--line); border-radius: 999px;
+      padding: 6px; box-shadow: 0 8px 22px rgba(0,0,0,0.45);
+      max-width: calc(100vw - 24px);
+    }
+    .detail-mobile-tab-btn {
+      background: none; border: none; border-radius: 999px;
+      color: var(--cream-dim); font-family: 'Inter', sans-serif;
+      font-size: 0.8rem; font-weight: 600; cursor: pointer;
+      padding: 9px 16px; white-space: nowrap;
+    }
+    .detail-mobile-tab-btn.active { background: var(--ember); color: var(--ink); }
+    .detail-content-grid.mobile-show-stats .detail-left-col { display: none; }
+    .detail-content-grid.mobile-show-photos .detail-right-col { display: none; }
+    .detail-content-grid { padding-bottom: 90px; }
+  }
+  @media (max-width: 480px) {
+    .detail-mobile-tabs { gap: 4px; padding: 5px; }
+    .detail-mobile-tab-btn { padding: 8px 10px; font-size: 0.7rem; }
+  }
+  .detail-right-col { min-width: 0; }
+  .page-panel main { padding: 0; }
+  .letter-heading {
+    font-size: 0.72rem; color: var(--ember); border-bottom: 1px solid var(--line);
+    padding-bottom: 6px; margin: 20px 0 10px; letter-spacing: 2px; text-transform: uppercase;
+    font-family: 'Inter', sans-serif; font-weight: 700;
+  }
+  .letter-rows-grid {
+    display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px 16px;
+  }
+  @media (max-width: 900px) {
+    .letter-rows-grid { grid-template-columns: repeat(2, 1fr); }
+  }
+  @media (max-width: 560px) {
+    .letter-rows-grid { grid-template-columns: 1fr; }
+  }
+  .pattern-row {
+    display: flex; align-items: center; gap: 10px; padding: 11px 10px;
+    border-bottom: 1px solid var(--line); background: none; cursor: pointer; border-radius: var(--radius-sm);
+    transition: background 0.15s;
+  }
+  .pattern-row:hover { background: var(--ink-3); }
+  .pattern-name { flex: 1; font-size: 1rem; color: var(--cream); font-family: 'Fraunces', serif; }
+  .ext-link { color: var(--cream-faint); text-decoration: none; font-size: 0.9rem; padding: 4px 6px; }
+  .ext-link:hover { color: var(--ember); }
+
+  .detail-header-block { max-width: 1400px; margin: 18px auto 0; padding: 0 16px; }
+  .detail-link {
+    display: inline-block; font-size: 0.85rem; color: var(--ember); text-decoration: none;
+    border: 1px solid var(--ember); padding: 7px 16px; border-radius: 999px; margin-bottom: 10px;
+    font-weight: 500;
+  }
+  .detail-link:hover { background: var(--ember-dim); }
+
+  .add-custom-btn {
+    display: block; width: 100%; margin-top: 10px; padding: 11px;
+    background: none; border: 1px dashed var(--ember); color: var(--ember);
+    border-radius: var(--radius-sm); font-family: 'Inter', sans-serif; font-size: 0.88rem;
+    font-weight: 600; cursor: pointer; transition: background 0.15s;
+  }
+  .delete-pattern-btn {
+    display: block; width: 100%; margin-top: 10px; padding: 11px;
+    background: none; border: 1px solid rgba(179,38,30,0.4); color: #ffb4a3;
+    border-radius: var(--radius-sm); font-family: 'Inter', sans-serif; font-size: 0.85rem;
+    font-weight: 600; cursor: pointer; transition: background 0.15s;
+  }
+  .delete-pattern-btn:hover { background: rgba(179,38,30,0.15); border-color: #b3261e; }
+  .delete-pattern-btn:disabled { opacity: 0.6; cursor: default; }
+  .add-custom-btn:hover { background: var(--ember-dim); }
+  .custom-piece-modal-overlay {
+    position: fixed; inset: 0; background: rgba(15,6,5,0.85);
+    display: none; align-items: center; justify-content: center; z-index: 1001; padding: 20px;
+  }
+  .custom-piece-modal-overlay.open { display: flex; }
+  .custom-piece-modal-box {
+    background: var(--cream); color: var(--ink); border-radius: var(--radius-lg);
+    padding: 32px 26px; max-width: 380px; width: 100%; position: relative;
+    box-shadow: 0 20px 50px rgba(0,0,0,0.45); text-align: left;
+  }
+  .custom-piece-modal-box h3 {
+    margin: 0 0 14px; font-family: 'Fraunces', serif; font-size: 1.3rem; color: var(--ink);
+  }
+  .custom-piece-modal-close {
+    position: absolute; top: 14px; right: 16px; background: none; border: none;
+    font-size: 1.6rem; line-height: 1; cursor: pointer; color: #4a382f;
+  }
+  .custom-piece-modal-box input[type="text"] {
+    width: 100%; box-sizing: border-box; padding: 10px 12px; border: 1px solid rgba(42,15,13,0.18);
+    border-radius: var(--radius-sm); font-family: 'Inter', sans-serif; font-size: 0.95rem;
+    margin-bottom: 10px; background: #fff; color: var(--ink);
+  }
+  .custom-piece-form-actions { display: flex; gap: 10px; margin-top: 4px; }
+  .custom-piece-save-btn, .custom-piece-cancel-btn {
+    flex: 1; padding: 10px; border-radius: 999px; font-family: 'Inter', sans-serif;
+    font-size: 0.88rem; font-weight: 600; cursor: pointer; border: 1px solid rgba(42,15,13,0.18);
+  }
+  .custom-piece-save-btn { background: var(--ember); color: var(--ink); border-color: var(--ember); }
+  .custom-piece-save-btn:hover { background: #c18557; }
+  .custom-piece-save-btn:disabled { opacity: 0.6; cursor: default; }
+  .custom-piece-cancel-btn { background: none; color: #4a382f; }
+  .custom-piece-cancel-btn:hover { border-color: var(--ember); color: var(--ember); }
+  .custom-piece-error { margin: 8px 0 0; font-size: 0.82rem; color: #b3261e; min-height: 1em; }
+  .custom-piece-modal-box select {
+    width: 100%; box-sizing: border-box; padding: 10px 12px; border: 1px solid rgba(42,15,13,0.18);
+    border-radius: var(--radius-sm); font-family: 'Inter', sans-serif; font-size: 0.95rem;
+    margin-bottom: 4px; background: #fff; color: var(--ink);
+  }
+  .quantity-modal-subtitle { margin: 0 0 14px; font-size: 0.85rem; color: #4a382f; }
+  .quantity-remove-btn {
+    display: none; width: 100%; margin-top: 10px; padding: 9px; background: none;
+    border: 1px solid rgba(179,38,30,0.4); color: #b3261e; border-radius: 999px;
+    font-family: 'Inter', sans-serif; font-size: 0.82rem; font-weight: 600; cursor: pointer;
+  }
+  .quantity-remove-btn:hover { background: rgba(179,38,30,0.08); }
+
+  .quantity-control { margin-top: 8px; text-align: center; }
+  .quantity-add-btn {
+    background: none; border: 1px dashed var(--line); color: var(--cream-faint);
+    border-radius: 999px; padding: 5px 12px; font-family: 'Inter', sans-serif; font-size: 0.72rem;
+    font-weight: 500; cursor: pointer; transition: border-color 0.15s, color 0.15s;
+  }
+  .quantity-add-btn:hover { border-color: var(--ember); color: var(--ember); }
+  .quantity-display {
+    background: var(--ember-dim); border: 1px solid var(--ember); color: var(--ember);
+    border-radius: 999px; padding: 5px 12px; font-family: 'Inter', sans-serif; font-size: 0.75rem;
+    font-weight: 700; cursor: pointer;
+  }
+  .quantity-display:hover { background: rgba(201,106,48,0.28); }
+  .quantity-display-wrap { display: inline-flex; align-items: center; gap: 6px; }
+  .quantity-display-wrap .quantity-display { border-radius: 999px 0 0 999px; border-right: none; }
+  .quantity-delete-btn {
+    background: var(--ember-dim); border: 1px solid var(--ember); color: var(--ember);
+    border-radius: 0 999px 999px 0; border-left: 1px solid rgba(201,106,48,0.4);
+    padding: 5px 10px; margin-left: -6px; font-size: 0.9rem; line-height: 1; cursor: pointer;
+  }
+  .quantity-delete-btn:hover { background: rgba(179,38,30,0.25); border-color: #b3261e; color: #ffb4a3; }
+  .quantity-delete-btn:disabled { opacity: 0.5; cursor: default; }
+
+  .piece-block {
+    border: 1px solid var(--line); background: var(--ink-2); padding: 16px 14px; margin-bottom: 10px;
+    border-radius: var(--radius-md);
+  }
+  .piece-block-custom { border-color: var(--ember); }
+  .piece-title-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
+  .piece-title { font-size: 1.02rem; color: var(--cream); margin: 0 0 12px; font-weight: 600; font-family: 'Fraunces', serif; }
+  .custom-piece-badge {
+    display: inline-block; font-family: 'Inter', sans-serif; font-size: 0.62rem; font-weight: 700;
+    text-transform: uppercase; letter-spacing: 0.6px; color: var(--ember); border: 1px solid var(--ember);
+    border-radius: 999px; padding: 2px 8px; margin-left: 6px; vertical-align: middle;
+  }
+  .piece-title-actions { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
+  .edit-piece-btn {
+    background: none; border: none; color: var(--cream-faint); font-size: 1rem; line-height: 1;
+    cursor: pointer; padding: 0 4px;
+  }
+  .edit-piece-btn:hover { color: var(--ember); }
+  .remove-piece-btn {
+    background: none; border: none; color: var(--cream-faint); font-size: 1.3rem; line-height: 1;
+    cursor: pointer; padding: 0 4px; flex-shrink: 0;
+  }
+  .remove-piece-btn:hover { color: #ffb4a3; }
+  .person-row { display: flex; gap: 16px; flex-wrap: wrap; }
+  .person-col { flex: 1; min-width: 140px; }
+  @media (max-width: 480px) {
+    .person-row { gap: 6px; }
+    .person-col { min-width: 0; }
+    .piece-block { padding: 12px 10px; }
+    .person-label { font-size: 0.62rem; margin-bottom: 5px; }
+    .quantity-control { margin-top: 5px; }
+    .quantity-add-btn, .quantity-display, .quantity-delete-btn { font-size: 0.62rem; padding: 3px 7px; }
+  }
+  .person-label {
+    font-size: 0.72rem; text-transform: uppercase; letter-spacing: 1px;
+    margin-bottom: 8px; font-weight: 700;
+  }
+  .person-label.cord { color: var(--cord); }
+  .person-label.mom { color: var(--mom); }
+  .person-label.grandma { color: var(--grandma); }
+  .photo-slot {
+    width: 100%; aspect-ratio: 1; border-radius: var(--radius-sm); border: 2px dashed var(--line);
+    display: flex; align-items: center; justify-content: center; overflow: hidden;
+    cursor: pointer; background: var(--ink-3); position: relative;
+    transition: border-color 0.15s;
+  }
+  .photo-slot:hover { border-color: var(--ember); }
+  .photo-slot img { width: 100%; height: 100%; object-fit: cover; }
+  .delete-photo-btn {
+    position: absolute; top: 6px; right: 6px; width: 24px; height: 24px;
+    border-radius: 50%; border: none; background: rgba(20,8,7,0.7); color: var(--cream);
+    font-size: 1rem; line-height: 1; cursor: pointer; display: flex;
+    align-items: center; justify-content: center; padding: 0; backdrop-filter: blur(2px);
+  }
+  .delete-photo-btn:hover { background: rgba(214,90,70,0.9); }
+  .delete-photo-btn:disabled { opacity: 0.6; cursor: default; }
+  .photo-slot .upload-label {
+    font-size: 0.8rem; color: var(--cream-faint); text-align: center; padding: 8px;
+  }
+  .photo-slot input[type="file"] { display: none; }
+  .photo-slot.uploading .upload-label { color: var(--ember); }
+
+  .lightbox-overlay {
+    position: fixed; inset: 0; background: rgba(15,6,5,0.92);
+    display: none; align-items: center; justify-content: center; z-index: 999; padding: 20px;
+  }
+  .lightbox-overlay.open { display: flex; }
+  .lightbox-overlay img { max-width: 100%; max-height: 90vh; border-radius: var(--radius-md); }
+  .lightbox-close {
+    position: absolute; top: 16px; right: 20px; color: var(--cream); font-size: 2rem;
+    cursor: pointer; background: none; border: none;
+  }
+  footer {
+    text-align: center; font-size: 0.72rem; color: var(--cream-faint); padding: 16px 20px 32px;
+    max-width: 1680px; margin: 0 auto;
+  }
+  .empty-note { text-align: center; color: var(--cream-dim); font-size: 0.9rem; padding: 20px; }
+  .config-warning {
+    max-width: 912px; margin: 14px auto; padding: 12px 16px; background: rgba(214,90,70,0.14);
+    border: 1px solid rgba(214,90,70,0.4); border-radius: var(--radius-sm); color: #ffb4a3; font-size: 0.85rem;
+  }
+  .password-gate {
+    position: fixed; inset: 0; background: var(--ink); z-index: 1000;
+    display: flex; align-items: center; justify-content: center; padding: 20px;
+  }
+  .password-box {
+    background: var(--cream); border-radius: var(--radius-lg); padding: 36px 30px; text-align: center;
+    max-width: 320px; width: 100%; box-shadow: 0 20px 50px rgba(0,0,0,0.45);
+  }
+  .password-box h2 { margin: 0 0 6px; color: var(--ink); font-size: 1.4rem; }
+  .password-box p { margin: 0 0 18px; color: #6b5750; font-size: 0.9rem; font-family: 'Inter', sans-serif; }
+  .password-box input {
+    width: 100%; padding: 11px 14px; border: 1px solid rgba(42,15,13,0.18); border-radius: 999px;
+    font-family: 'Inter', sans-serif; font-size: 1rem; margin-bottom: 12px; box-sizing: border-box;
+    background: #fff; color: var(--ink);
+  }
+  .password-box button {
+    width: 100%; padding: 11px; border: none; border-radius: 999px; background: var(--ember);
+    color: var(--ink); font-family: 'Inter', sans-serif; font-size: 1rem; font-weight: 600; cursor: pointer;
+  }
+  .password-box button:hover { background: #c18557; }
+  .password-error { color: #a5473c; font-size: 0.85rem; margin: 10px 0 0; min-height: 1em; }
+</style>
+</head>
+<body>
+
+<svg class="bg-rings" viewBox="0 0 1600 1200" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
+  <g fill="none" stroke="rgba(201,106,48,0.18)" stroke-width="1">
+    <circle cx="120" cy="20" r="220"></circle>
+    <circle cx="120" cy="20" r="340"></circle>
+    <circle cx="120" cy="20" r="460"></circle>
+    <circle cx="120" cy="20" r="580"></circle>
+  </g>
+  <g fill="none" stroke="rgba(217,167,90,0.12)" stroke-width="1">
+    <circle cx="1500" cy="980" r="240"></circle>
+    <circle cx="1500" cy="980" r="380"></circle>
+    <circle cx="1500" cy="980" r="520"></circle>
+  </g>
+</svg>
+
+<nav class="floating-nav" id="floatingNav">
+  <button class="floating-nav-btn" data-nav="dashboard">Dashboard</button>
+  <button class="floating-nav-btn" data-nav="library">Library</button>
+  <button class="floating-nav-btn" data-nav="gallery">Stash</button>
+</nav>
+
+
+<div id="passwordGate" class="password-gate">
+  <div class="password-box">
+    <h2>Stangl Stash</h2>
+    <p>Enter the password to continue</p>
+    <input type="password" id="passwordInput" placeholder="Password" autocomplete="off">
+    <button id="passwordSubmit">Enter</button>
+    <p id="passwordError" class="password-error"></p>
+  </div>
+</div>
+
+<header id="headerBar">
+  <div class="masthead">
+    <img src="stangl-stash-logo.png" alt="Stangl Stash" class="masthead-logo" onerror="this.style.display='none'">
+  </div>
+  <h1 id="headerTitle">Mom, Grandma and Cord's Stangl Stash</h1>
+  <nav class="site-nav" id="siteNav">
+    <button class="nav-btn" data-nav="dashboard">Dashboard</button>
+    <button class="nav-btn" data-nav="library">Pattern Library</button>
+    <button class="nav-btn" data-nav="gallery">Stangl Stash</button>
+  </nav>
+  <button id="installBtn" class="install-btn">&#128241; Get the App</button>
+</header>
+
+<div class="install-modal-overlay" id="installModal">
+  <div class="install-modal-box">
+    <button class="install-modal-close" id="installModalClose">&times;</button>
+    <div id="installModalContent"></div>
+  </div>
+</div>
+
+<div id="app"></div>
+
+<div class="lightbox-overlay" id="lightbox">
+  <button class="lightbox-close" id="lightboxClose">&times;</button>
+  <img id="lightboxImg" src="" alt="">
+</div>
+
+<script>
+if (window.Chart) {
+  Chart.defaults.font.family = "'Inter', system-ui, sans-serif";
+  Chart.defaults.color = 'rgba(246,236,220,0.62)';
+}
+
+const patterns = [
+  ["ABC", "https://www.replacements.com/china-stangl-abc/c/98339"],
+  ["Amber Glo", "https://www.replacements.com/china-stangl-amber-glo/c/98345"],
+  ["Antique Gold (Gold on Green Body)", "https://www.replacements.com/china-stangl-antique-gold-gold-on-green-body/c/98346"],
+  ["Apple Delight", "https://www.replacements.com/china-stangl-apple-delight/c/98348"],
+  ["Bachelor's Button", "https://www.replacements.com/china-stangl-bachelors-button/c/98350"],
+  ["Bella Rosa", "https://www.replacements.com/china-stangl-bella-rosa/c/98352"],
+  ["Bittersweet", "https://www.replacements.com/china-stangl-bittersweet/c/98353"],
+  ["Blossom Ring", "https://www.replacements.com/china-stangl-blossom-ring/c/98357"],
+  ["Blue Bell", "https://www.replacements.com/china-stangl-blue-bell/c/98354"],
+  ["Blue Daisy", "https://www.replacements.com/china-stangl-blue-daisy/c/98355"],
+  ["Blueberry", "https://www.replacements.com/china-stangl-blueberry/c/98358"],
+  ["Carnival", "https://www.replacements.com/china-stangl-carnival/c/98361"],
+  ["Cat and The Fiddle", "https://www.replacements.com/china-stangl-cat-the-fiddle/c/156187"],
+  ["Caughley Blue", "https://www.replacements.com/china-stangl-caughley-blue/c/98362"],
+  ["Caughley Green", "https://www.replacements.com/china-stangl-caughley-green/c/98363"],
+  ["Caughley Yellow", "https://www.replacements.com/china-stangl-caughley-yellow/c/98364"],
+  ["Chicory", "https://www.replacements.com/china-stangl-chicory/c/98365"],
+  ["Colonial Blue (Medium)", "https://www.replacements.com/china-stangl-colonial-colonial-blue-medium/c/98373"],
+  ["Colonial Green (Silver)", "https://www.replacements.com/china-stangl-colonial-green-silver/c/98371"],
+  ["Colonial Rose", "https://www.replacements.com/china-stangl-colonial-rose/c/98382"],
+  ["Colonial Tangerine", "https://www.replacements.com/china-stangl-colonial-tangerine/c/98377"],
+  ["Colonial Yellow (Persian)", "https://www.replacements.com/china-stangl-colonial-yellow-persian/c/98379"],
+  ["Country Garden (Brown Body and Carved)", "https://www.replacements.com/china-stangl-country-garden-brown-body-carved/c/98367"],
+  ["Country Garden (White Body)", "https://www.replacements.com/china-stangl-country-garden-white-body/c/98368"],
+  ["Country Life", "https://www.replacements.com/china-stangl-country-life/c/98372"],
+  ["Cranberry", "https://www.replacements.com/china-stangl-cranberry/c/98385"],
+  ["Dahlia (Brown Bottom)", "https://www.replacements.com/china-stangl-dahlia-brown-bottom/c/98386"],
+  ["Ducky Dinner", "https://www.replacements.com/china-stangl-ducky-dinner/c/98390"],
+  ["El Rosa", "https://www.replacements.com/china-stangl-el-rosa/c/98392"],
+  ["Fairlawn", "https://www.replacements.com/china-stangl-fairlawn/c/98394"],
+  ["Festival (Coupe)", "https://www.replacements.com/china-stangl-festival-coupe/c/98395"],
+  ["Festival (Rim)", "https://www.replacements.com/china-stangl-festival-rim/c/98396"],
+  ["First Love", "https://www.replacements.com/china-stangl-first-love/c/98398"],
+  ["Flora", "https://www.replacements.com/china-stangl-flora/c/98399"],
+  ["Frosted Fruit", "https://www.replacements.com/china-stangl-frosted-fruit/c/98403"],
+  ["Fruit (Brown Trim)", "https://www.replacements.com/china-stangl-fruit-brown-trim/c/98404"],
+  ["Fruit (Terra Rose Line)", "https://www.replacements.com/china-stangl-fruit-terra-rose-line/c/98405"],
+  ["Fruit (White Background, Not Carved)", "https://www.replacements.com/china-stangl-fruit-white-background-not-carved/c/147115"],
+  ["Fruit (Yellow Trim)", "https://www.replacements.com/china-stangl-fruit-yellow-trim/c/146132"],
+  ["Fruit & Flowers", "https://www.replacements.com/china-stangl-fruit-flowers/c/98402"],
+  ["Garden Flower", "https://www.replacements.com/china-stangl-garden-flower/c/98406"],
+  ["Garden Flower (Terra Rose)", "https://www.replacements.com/china-stangl-garden-flower-terra-rose/c/98407"],
+  ["Garland", "https://www.replacements.com/china-stangl-garland/c/98409"],
+  ["Ginger Cat", "https://www.replacements.com/china-stangl-ginger-cat/c/98410"],
+  ["Golden Blossom (Brown Trim, Yellow Band)", "https://www.replacements.com/china-stangl-golden-blossom-brown-trim-yellow-band/c/98412"],
+  ["Golden Blossom (Yellow Band)", "https://www.replacements.com/china-stangl-golden-blossom-yellow-band/c/98413"],
+  ["Golden Grape", "https://www.replacements.com/china-stangl-golden-grape/c/98414"],
+  ["Golden Harvest", "https://www.replacements.com/china-stangl-golden-harvest/c/98415"],
+  ["Granada Gold (Gold on Tan Body)", "https://www.replacements.com/china-stangl-granada-gold-gold-on-tan-body/c/98417"],
+  ["Grape", "https://www.replacements.com/china-stangl-grape/c/98416"],
+  ["Harvest", "https://www.replacements.com/china-stangl-harvest/c/98418"],
+  ["Holly", "https://www.replacements.com/china-stangl-holly/c/98420"],
+  ["Humpty Dumpty", "https://www.replacements.com/china-stangl-humpty-dumpty/c/98421"],
+  ["Indian Campfire", "https://www.replacements.com/china-stangl-indian-campfire/c/98422"],
+  ["Inspiration", "https://www.replacements.com/china-stangl-inspiration/c/98423"],
+  ["Jersey Shore", "https://www.replacements.com/china-stangl-jersey-shore/c/193746"],
+  ["Jewelled Christmas Tree", "https://www.replacements.com/china-stangl-jewelled-christmas-tree/c/98424"],
+  ["Kitten Capers", "https://www.replacements.com/china-stangl-kitten-capers/c/98425"],
+  ["Little Bo Peep (Pink Band)", "https://www.replacements.com/china-stangl-little-bo-peep-pink-band/c/98430"],
+  ["Little Boy Blue (Blue Band)", "https://www.replacements.com/china-stangl-little-boy-blue-blue-band/c/98429"],
+  ["Little Quackers", "https://www.replacements.com/china-stangl-little-quackers/c/98431"],
+  ["Lyric", "https://www.replacements.com/china-stangl-lyric/c/98432"],
+  ["Magnolia", "https://www.replacements.com/china-stangl-magnolia/c/98433"],
+  ["Mediterranean", "https://www.replacements.com/china-stangl-mediterranean/c/98435"],
+  ["Mountain Laurel", "https://www.replacements.com/china-stangl-mountain-laurel/c/98438"],
+  ["Mountain Laurel (Terra Rosa)", "https://www.replacements.com/china-stangl-mountain-laurel-terra-rosa/c/98439"],
+  ["New Tulip Yellow", "https://www.replacements.com/china-stangl-new-tulip-yellow/c/98499"],
+  ["Orchard Song", "https://www.replacements.com/china-stangl-orchard-song/c/98441"],
+  ["Orchard Song (variant)", "https://www.replacements.com/china-stangl-orchard-song/c/148685"],
+  ["Peter Rabbit (Dark Green Band)", "https://www.replacements.com/china-stangl-peter-rabbit-dark-green-band/c/98445"],
+  ["Petite Flowers", "https://www.replacements.com/china-stangl-petite-flowers/c/98444"],
+  ["Pink Dogwood", "https://www.replacements.com/china-stangl-pink-dogwood/c/98448"],
+  ["Pony Trail", "https://www.replacements.com/china-stangl-pony-trail/c/98453"],
+  ["Prelude", "https://www.replacements.com/china-stangl-prelude/c/98454"],
+  ["Provincial", "https://www.replacements.com/china-stangl-provincial/c/98455"],
+  ["Ranger", "https://www.replacements.com/china-stangl-ranger/c/98457"],
+  ["Ranger Boy", "https://www.replacements.com/china-stangl-ranger-boy/c/98456"],
+  ["Rooster", "https://www.replacements.com/china-stangl-rooster/c/98459"],
+  ["Sculptured Fruit", "https://www.replacements.com/china-stangl-sculptured-fruit/c/98462"],
+  ["Sculptured Fruit (variant)", "https://www.replacements.com/china-stangl-sculptured-fruit/c/151249"],
+  ["Sportsmen's Giftware", "https://www.replacements.com/china-stangl-sportsmens-giftware/c/130785"],
+  ["Star Flower", "https://www.replacements.com/china-stangl-star-flower/c/98469"],
+  ["Stardust", "https://www.replacements.com/china-stangl-stardust/c/98468"],
+  ["Sun Pebbles", "https://www.replacements.com/china-stangl-sun-pebbles/c/98477"],
+  ["Thistle (Green Thistle)", "https://www.replacements.com/china-stangl-thistle-green-thistle/c/131471"],
+  ["Thistle (Pink Thistle)", "https://www.replacements.com/china-stangl-thistle-pink-thistle/c/98479"],
+  ["Tiger Lily", "https://www.replacements.com/china-stangl-tiger-lily/c/98480"],
+  ["Town & Country Black", "https://www.replacements.com/china-stangl-town-country-black/c/98482"],
+  ["Town & Country Blue", "https://www.replacements.com/china-stangl-town-country-blue/c/98481"],
+  ["Town & Country Brown", "https://www.replacements.com/china-stangl-town-country-brown/c/98483"],
+  ["Town & Country Green", "https://www.replacements.com/china-stangl-town-country-green/c/98484"],
+  ["Town & Country Orange", "https://www.replacements.com/china-stangl-town-country-orange/c/98485"],
+  ["Town & Country Yellow", "https://www.replacements.com/china-stangl-town-country-yellow/c/98486"],
+  ["Tulip Blue", "https://www.replacements.com/china-stangl-tulip-blue/c/98489"],
+  ["Tulip Blue (Terra Rose Line)", "https://www.replacements.com/china-stangl-tulip-blue-terra-rose-line/c/98490"],
+  ["Tulip Yellow (Not Terra Rose Line)", "https://www.replacements.com/china-stangl-tulip-yellow-not-terra-rose-line/c/98492"],
+  ["Tulip Yellow (Terra Rose Line)", "https://www.replacements.com/china-stangl-tulip-yellow-terra-rose-line/c/98491"],
+  ["White Dogwood", "https://www.replacements.com/china-stangl-white-dogwood/c/98493"],
+  ["White Dogwood (variant)", "https://www.replacements.com/china-stangl-white-dogwood/c/149010"],
+  ["Wild Rose", "https://www.replacements.com/china-stangl-wild-rose/c/98496"]
+];
+
+const BUILT_IN_PATTERN_COUNT = patterns.length;
+let customPatternNames = new Set();
+let customPatternByName = new Map();
+
+const pieceTypes = [
+  "Dinner Plate (10\")", "Salad Plate (8\")", "Bread & Butter Plate (6\")",
+  "Cup", "Saucer", "Fruit / Dessert Bowl", "Cereal / Soup Bowl", "Coupe Soup Bowl",
+  "Chop Plate / Round Platter (12\"-14\")", "Oval Serving Platter", "Oval Vegetable Bowl",
+  "Round Vegetable Bowl", "Divided Vegetable Dish", "Gravy Boat", "Gravy Boat Underplate",
+  "Creamer", "Sugar Bowl with Lid", "Teapot", "Coffee Pot", "Salt & Pepper Shakers",
+  "Butter Dish", "Egg Cup", "Ashtray", "Mug", "Pitcher", "Casserole Dish with Lid"
+];
+
+const PEOPLE = ["cord", "mom", "grandma"];
+const PEOPLE_LABELS = { cord: "Cord", mom: "Mom", grandma: "Grandma" };
+function personLabel(person) { return PEOPLE_LABELS[person] || person; }
+const PERSON_PATTERN = PEOPLE.join('|');
+const PHOTO_REGEX = new RegExp(`^(.+)--(.+)--(${PERSON_PATTERN})\\.jpg$`);
+function emptyCounts() { return Object.fromEntries(PEOPLE.map(p => [p, 0])); }
+function emptyDetail() { return Object.fromEntries(PEOPLE.map(p => [p, new Set()])); }
+const SITE_PASSWORD = "zindulka";
+
+let fbStorage = null;
+let view = "dashboard";
+let currentPatternIndex = null;
+
+function slug(s) { return s.toLowerCase().replace(/[^a-z0-9]+/g, '-'); }
+
+// Chart.js now loads via a fallback chain of CDNs (see the loader script in
+// <head>), which means it may still be mid-download at the exact moment the
+// dashboard tries to build charts. This waits briefly for it to show up
+// before concluding it truly failed, instead of giving a false "never
+// loaded" verdict just because of a race with an async script tag.
+function waitForChartJs(onReady, onTimeout, maxWaitMs) {
+  maxWaitMs = maxWaitMs || 4000;
+  const start = Date.now();
+  (function poll() {
+    if (typeof Chart !== 'undefined') { onReady(); return; }
+    if (Date.now() - start > maxWaitMs) { onTimeout(); return; }
+    setTimeout(poll, 100);
+  })();
+}
+
+function initFirebase() {
+  const placeholder = "YOUR_FIREBASE";
+  const configValues = Object.values(firebaseConfig);
+  if (configValues.some(v => v.includes(placeholder))) {
+    return false;
+  }
+  firebase.initializeApp(firebaseConfig);
+  fbStorage = firebase.storage();
+  return true;
+}
+
+function photoPath(patternSlug, pieceSlug, person) {
+  return `${patternSlug}--${pieceSlug}--${person}.jpg`;
+}
+
+async function loadPatternPieceUploads(patternSlug) {
+  if (!fbStorage) return new Set();
+  const uploaded = new Set();
+  try {
+    const result = await fbStorage.ref().listAll();
+    const prefix = `${patternSlug}--`;
+    result.items.forEach((itemRef) => {
+      if (!itemRef.name.startsWith(prefix)) return;
+      const match = itemRef.name.match(PHOTO_REGEX);
+      if (!match || match[1] !== patternSlug) return;
+      uploaded.add(match[2]);
+    });
+  } catch (err) {
+    console.error('Failed to load piece uploads for pattern', err);
+  }
+  return uploaded;
+}
+
+// Custom pieces are tracked purely by filename existence under
+// custom-pieces/<patternSlug>/<url-encoded label>.json -- the label itself
+// Custom pieces are tracked by filename existence under
+// custom-pieces/<patternSlug>/<10-char-id><url-encoded label>.json -- both
+// the stable id and the label live in the filename, so listing that folder
+// gives back everything with no need to fetch/parse file contents (the
+// same reasoning as before: only list/put/delete calls, never a raw
+// fetch() of a download URL).
+//
+// The id (not the label) is what photo/quantity storage paths are keyed
+// on, so renaming a piece later never orphans its photos. Pieces created
+// before this existed have no id prefix ("legacy") -- those still work
+// exactly as before, keyed on their label, but renaming one starts it
+// fresh under the new id-based scheme (see renameCustomPiece).
+function generateCustomPieceId() {
+  let id = '';
+  for (let i = 0; i < 10; i++) id += Math.floor(Math.random() * 16).toString(16);
+  return id;
+}
+
+// Custom patterns work the same way as custom pieces: a stable id up front
+// in the filename, with the name and (optional) reference url encoded into
+// the rest of it using "|" as a separator -- a character encodeURIComponent
+// always escapes away, so it can never collide with anything a real name
+// or url encodes to. Just list()/put(), no fetch() of file contents.
+function customPatternMarkerPath(id, name, url) {
+  return `custom-patterns/${id}${encodeURIComponent(name)}|${encodeURIComponent(url || '')}.json`;
+}
+
+async function loadCustomPatternEntries() {
+  if (!fbStorage) return [];
+  try {
+    const listing = await fbStorage.ref().child('custom-patterns').listAll();
+    return listing.items.map((item) => {
+      const base = item.name.replace(/\.json$/, '');
+      const id = base.slice(0, 10);
+      const rest = base.slice(10);
+      const sep = rest.indexOf('|');
+      if (sep === -1) return null;
+      let name, url;
+      try { name = decodeURIComponent(rest.slice(0, sep)); } catch (err) { return null; }
+      try { url = decodeURIComponent(rest.slice(sep + 1)); } catch (err) { url = ''; }
+      return { id, name, url };
+    }).filter(Boolean);
+  } catch (err) {
+    console.error('Failed to load custom patterns', err);
+    return [];
+  }
+}
+
+async function addCustomPatternEntry(name, url) {
+  const id = generateCustomPieceId();
+  const blob = new Blob(['1'], { type: 'text/plain' });
+  await fbStorage.ref().child(customPatternMarkerPath(id, name, url)).put(blob);
+}
+
+async function deleteCustomPatternEntry(cp) {
+  await fbStorage.ref().child(customPatternMarkerPath(cp.id, cp.name, cp.url)).delete();
+}
+
+// Refreshes the runtime `patterns` list to be built-ins + whatever custom
+// patterns currently exist in Firebase. Safe to call repeatedly -- it
+// truncates back to just the built-ins first, so nothing gets duplicated.
+async function refreshCustomPatterns() {
+  const entries = await loadCustomPatternEntries();
+  patterns.length = BUILT_IN_PATTERN_COUNT;
+  customPatternNames = new Set();
+  customPatternByName = new Map();
+  entries.forEach((cp) => {
+    patterns.push([cp.name, cp.url || '']);
+    customPatternNames.add(cp.name);
+    customPatternByName.set(cp.name, cp);
+  });
+  return entries;
+}
+
+function customPieceMarkerPath(patternSlug, id, label) {
+  return `custom-pieces/${patternSlug}/${id}${encodeURIComponent(label)}.json`;
+}
+
+function legacyCustomPieceMarkerPath(patternSlug, label) {
+  return `custom-pieces/${patternSlug}/${encodeURIComponent(label)}.json`;
+}
+
+async function loadCustomPieces(patternSlug) {
+  if (!fbStorage) return [];
+  try {
+    const listing = await fbStorage.ref().child(`custom-pieces/${patternSlug}`).listAll();
+    const result = [];
+    listing.items.forEach((item) => {
+      const base = item.name.replace(/\.json$/, '');
+      const maybeId = base.slice(0, 10);
+      if (/^[0-9a-f]{10}$/.test(maybeId)) {
+        try {
+          result.push({ id: maybeId, label: decodeURIComponent(base.slice(10)), legacy: false });
+          return;
+        } catch (err) { /* fall through to legacy parse below */ }
+      }
+      try {
+        result.push({ id: null, label: decodeURIComponent(base), legacy: true });
+      } catch (err) { /* skip unparseable filename */ }
+    });
+    return result;
+  } catch (err) {
+    return [];
+  }
+}
+
+function customPiecePieceSlug(cp) {
+  return cp.legacy ? slug(cp.label) : `custom-${cp.id}`;
+}
+
+async function addCustomPiece(patternSlug, label) {
+  const id = generateCustomPieceId();
+  const blob = new Blob(['1'], { type: 'text/plain' });
+  await fbStorage.ref().child(customPieceMarkerPath(patternSlug, id, label)).put(blob);
+}
+
+// Renaming a piece that already has a stable id is instant and safe (photo
+// paths are keyed on the id, which never changes). Renaming a legacy piece
+// converts it to the new scheme under a fresh id -- any photos/quantities
+// already attached to its old (label-based) identity won't carry over
+// automatically, since there's no reliable way to move uploaded files
+// without a server-side copy operation this static site doesn't have.
+async function renameCustomPiece(patternSlug, cp, newLabel) {
+  const blob = new Blob(['1'], { type: 'text/plain' });
+  if (cp.legacy) {
+    const newId = generateCustomPieceId();
+    await fbStorage.ref().child(customPieceMarkerPath(patternSlug, newId, newLabel)).put(blob);
+    try { await fbStorage.ref().child(legacyCustomPieceMarkerPath(patternSlug, cp.label)).delete(); }
+    catch (err) { /* ignore */ }
+  } else {
+    await fbStorage.ref().child(customPieceMarkerPath(patternSlug, cp.id, newLabel)).put(blob);
+    try { await fbStorage.ref().child(customPieceMarkerPath(patternSlug, cp.id, cp.label)).delete(); }
+    catch (err) { /* ignore */ }
+  }
+}
+
+async function deleteCustomPieceMarker(patternSlug, cp) {
+  const path = cp.legacy
+    ? legacyCustomPieceMarkerPath(patternSlug, cp.label)
+    : customPieceMarkerPath(patternSlug, cp.id, cp.label);
+  await fbStorage.ref().child(path).delete();
+}
+
+// Quantities are tracked the same way as custom pieces: the quantity value
+// is encoded directly in the marker filename, so reading them back is just
+// a listAll() + filename parse -- no fetch()/content read needed.
+async function loadPatternQuantities(patternSlug) {
+  if (!fbStorage) return {};
+  const result = {};
+  try {
+    const listing = await fbStorage.ref().child('quantities').listAll();
+    const prefix = `${patternSlug}--`;
+    listing.items.forEach((item) => {
+      const base = item.name.replace(/\.json$/, '');
+      if (!base.startsWith(prefix)) return;
+      const parts = base.slice(prefix.length).split('--');
+      if (parts.length !== 3) return;
+      const [pieceSlug, person, qtyStr] = parts;
+      const qty = parseInt(qtyStr, 10);
+      if (!Number.isFinite(qty)) return;
+      result[`${pieceSlug}--${person}`] = qty;
+    });
+  } catch (err) {
+    console.error('Failed to load quantities', err);
+  }
+  return result;
+}
+
+function quantityMarkerPath(patternSlug, pieceSlug, person, qty) {
+  return `quantities/${patternSlug}--${pieceSlug}--${person}--${qty}.json`;
+}
+
+async function setPatternPieceQuantity(patternSlug, pieceSlug, person, qty, previousQty) {
+  if (previousQty != null) {
+    try { await fbStorage.ref().child(quantityMarkerPath(patternSlug, pieceSlug, person, previousQty)).delete(); }
+    catch (err) { /* ignore if it wasn't there */ }
+  }
+  const blob = new Blob(['1'], { type: 'text/plain' });
+  await fbStorage.ref().child(quantityMarkerPath(patternSlug, pieceSlug, person, qty)).put(blob);
+}
+
+async function clearPatternPieceQuantity(patternSlug, pieceSlug, person, previousQty) {
+  await fbStorage.ref().child(quantityMarkerPath(patternSlug, pieceSlug, person, previousQty)).delete();
+}
+
+async function loadDashboardData() {
+  if (!fbStorage) return null;
+  const countsByPattern = {};
+  const patternPieceDetails = {};
+  patterns.forEach(([name]) => {
+    countsByPattern[slug(name)] = Object.fromEntries(PEOPLE.map(p => [p, 0]));
+    patternPieceDetails[slug(name)] = Object.fromEntries(PEOPLE.map(p => [p, new Set()]));
+  });
+  const combinedSlots = new Set();
+  let items;
+
+  try {
+    const result = await fbStorage.ref().listAll();
+    items = result.items.filter(itemRef => itemRef.name.match(PHOTO_REGEX));
+  } catch (err) {
+    console.error("Inventory load failed", err);
+    return null;
+  }
+
+  items.forEach(itemRef => {
+    const match = itemRef.name.match(PHOTO_REGEX);
+    const [, pSlug, pieceSlug, person] = match;
+    if (countsByPattern[pSlug]) countsByPattern[pSlug][person]++;
+    if (patternPieceDetails[pSlug]) patternPieceDetails[pSlug][person].add(pieceSlug);
+    combinedSlots.add(pSlug + '--' + pieceSlug);
+  });
+
+  // Piece-type diversity: how many distinct patterns have at least one photo
+  // of each standard piece type (custom pieces aren't comparable by name
+  // across patterns, so they're excluded from this one).
+  const pieceDiversity = {};
+  pieceTypes.forEach(p => pieceDiversity[slug(p)] = 0);
+  Object.values(patternPieceDetails).forEach(detail => {
+    const combined = new Set(PEOPLE.flatMap(p => [...detail[p]]));
+    combined.forEach(pieceSlug => {
+      if (pieceDiversity.hasOwnProperty(pieceSlug)) pieceDiversity[pieceSlug]++;
+    });
+  });
+
+  // Custom piece counts per pattern (only patterns with at least one show
+  // up as a subfolder, so this is cheap in practice).
+  const customCountByPattern = {};
+  let totalCustomPieces = 0;
+  try {
+    const listing = await fbStorage.ref().child('custom-pieces').listAll();
+    await Promise.all(listing.prefixes.map(async (prefixRef) => {
+      try {
+        const sub = await prefixRef.listAll();
+        customCountByPattern[prefixRef.name] = sub.items.length;
+        totalCustomPieces += sub.items.length;
+      } catch (err) { /* skip unreadable folder */ }
+    }));
+  } catch (err) { /* no custom pieces yet */ }
+
+  // Quantity-aware total pieces owned (defaults to 1 per photographed piece
+  // when no quantity has been set).
+  const quantityMap = {};
+  try {
+    const qListing = await fbStorage.ref().child('quantities').listAll();
+    qListing.items.forEach(item => {
+      const base = item.name.replace(/\.json$/, '');
+      const parts = base.split('--');
+      if (parts.length !== 4) return;
+      const [pSlug, pieceSlug, person, qtyStr] = parts;
+      const qty = parseInt(qtyStr, 10);
+      if (Number.isFinite(qty)) quantityMap[`${pSlug}--${pieceSlug}--${person}`] = qty;
+    });
+  } catch (err) { /* no quantities set yet */ }
+
+  let totalPiecesOwned = 0;
+  items.forEach(itemRef => {
+    const match = itemRef.name.match(PHOTO_REGEX);
+    const [, pSlug, pieceSlug, person] = match;
+    totalPiecesOwned += quantityMap[`${pSlug}--${pieceSlug}--${person}`] || 1;
+  });
+
+  return {
+    countsByPattern,
+    patternPieceDetails,
+    combinedTotal: combinedSlots.size,
+    pieceDiversity,
+    customCountByPattern,
+    totalCustomPieces,
+    totalPiecesOwned,
+    totalPhotosUploaded: items.length
+  };
+}
+
+async function loadAllPhotos() {
+  if (!fbStorage) return [];
+  const result = await fbStorage.ref().listAll();
+  const items = result.items.filter(itemRef => itemRef.name.match(PHOTO_REGEX));
+  const photos = await Promise.all(items.map(async itemRef => {
+    const match = itemRef.name.match(PHOTO_REGEX);
+    const [, pSlug, pieceSlug, person] = match;
+    const url = await itemRef.getDownloadURL();
+    return { pSlug, pieceSlug, person, url };
+  }));
+  return photos;
+}
+
+function setHeader() {}
+
+function updateNavActive() {
+  const activeView = view === 'detail' ? 'library' : view;
+  document.querySelectorAll('.nav-btn, .floating-nav-btn').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.nav === activeView);
+  });
+}
+
+function groupByLetter(list) {
+  const groups = {};
+  list.forEach(item => {
+    const letter = item[0][0].toUpperCase();
+    if (!groups[letter]) groups[letter] = [];
+    groups[letter].push(item);
+  });
+  Object.values(groups).forEach(group => group.sort((a, b) => a[0].localeCompare(b[0])));
+  return groups;
+}
+
+let autoCompressRanThisSession = false;
+
+function renderDashboardPage() {
+  setHeader(false);
+  const app = document.getElementById('app');
+  app.innerHTML = `
+    <p class="page-subtitle">Dashboard</p>
+    <div class="page-panel">
+      <div id="dashboardContent" class="dashboard-content">
+        <p class="dashboard-loading">Loading counts...</p>
+      </div>
+      <button id="refreshDashboard" class="refresh-btn">Refresh counts</button>
+      <p id="compressProgress" class="dashboard-note" style="margin-top:8px;"></p>
+    </div>
+  `;
+  document.getElementById('refreshDashboard').addEventListener('click', renderDashboard);
+  renderDashboard();
+  runAutoCompressOnce();
+}
+
+async function runAutoCompressOnce() {
+  if (autoCompressRanThisSession || !fbStorage) return;
+  autoCompressRanThisSession = true;
+
+  let alreadyDone;
+  try {
+    alreadyDone = await hasCompletedLegacyCompression();
+  } catch (err) {
+    console.error('Could not check legacy compression status:', err);
+    return;
+  }
+  if (alreadyDone) return;
+
+  const progressEl = document.getElementById('compressProgress');
+  try {
+    const result = await compressExistingPhotos((current, total, counts) => {
+      if (progressEl && counts.compressed > 0) {
+        progressEl.textContent = `Optimizing photos, one time only\u2026 ${current}/${total} (${counts.compressed} sped up so far)`;
+      }
+    });
+
+    const allFailed = result.failed > 0 && result.failed === result.total;
+    if (!allFailed) {
+      await markLegacyCompressionComplete();
+    }
+
+    if (progressEl) {
+      if (allFailed) {
+        progressEl.textContent = 'Could not optimize existing photos automatically \u2014 this usually means your Firebase project needs CORS enabled. Let me know and I can walk you through it.';
+      } else if (result.compressed > 0) {
+        progressEl.textContent = `Done \u2014 sped up ${result.compressed} older photo${result.compressed === 1 ? '' : 's'}. This was a one-time cleanup and won't run again.`;
+      } else {
+        progressEl.textContent = '';
+      }
+    }
+  } catch (err) {
+    console.error('Background photo optimization failed:', err);
+  }
+}
+
+function openDashboard() {
+  view = 'dashboard';
+  renderApp();
+}
+
+function renderLibraryPage() {
+  setHeader(false);
+  const app = document.getElementById('app');
+  app.innerHTML = `
+    <p class="page-subtitle">Pattern Library</p>
+    <div class="page-panel">
+      <div class="controls">
+        <input type="text" id="searchBox" placeholder="Search patterns...">
+      </div>
+      <button id="addCustomPatternBtn" class="add-custom-btn" type="button">+ Add a Pattern</button>
+      <main id="main"></main>
+    </div>
+
+    <div class="custom-piece-modal-overlay" id="customPatternModal">
+      <div class="custom-piece-modal-box">
+        <button class="custom-piece-modal-close" id="customPatternModalClose" type="button">&times;</button>
+        <h3>Add a Pattern</h3>
+        <input type="text" id="customPatternName" placeholder="Pattern name (e.g. Blue Meadow)">
+        <input type="text" id="customPatternUrl" placeholder="Reference link (optional)">
+        <div class="custom-piece-form-actions">
+          <button id="customPatternSave" class="custom-piece-save-btn" type="button">Add Pattern</button>
+          <button id="customPatternCancel" class="custom-piece-cancel-btn" type="button">Cancel</button>
+        </div>
+        <p id="customPatternError" class="custom-piece-error"></p>
+      </div>
+    </div>
+  `;
+  document.getElementById('searchBox').addEventListener('input', renderPatternList);
+  renderPatternList();
+
+  const modal = document.getElementById('customPatternModal');
+  const nameInput = document.getElementById('customPatternName');
+  const urlInput = document.getElementById('customPatternUrl');
+  const errorEl = document.getElementById('customPatternError');
+  const saveBtn = document.getElementById('customPatternSave');
+
+  function openModal() {
+    nameInput.value = '';
+    urlInput.value = '';
+    errorEl.textContent = '';
+    modal.classList.add('open');
+    nameInput.focus();
+  }
+  function closeModal() {
+    modal.classList.remove('open');
+  }
+
+  document.getElementById('addCustomPatternBtn').onclick = openModal;
+  document.getElementById('customPatternModalClose').onclick = closeModal;
+  document.getElementById('customPatternCancel').onclick = closeModal;
+  modal.onclick = (e) => { if (e.target === modal) closeModal(); };
+
+  saveBtn.onclick = async () => {
+    const name = nameInput.value.trim();
+    const url = urlInput.value.trim();
+    errorEl.textContent = '';
+    if (!fbStorage) {
+      errorEl.textContent = 'Connect Firebase (see setup notes at the top of this file) to add custom patterns.';
+      return;
+    }
+    if (!name) {
+      errorEl.textContent = 'Please enter a pattern name.';
+      return;
+    }
+    const newSlug = slug(name);
+    const takenSlugs = patterns.map(p => slug(p[0]));
+    if (takenSlugs.includes(newSlug)) {
+      errorEl.textContent = 'A pattern with that name already exists.';
+      return;
+    }
+    saveBtn.disabled = true;
+    saveBtn.textContent = 'Adding...';
+    try {
+      await addCustomPatternEntry(name, url);
+      await refreshCustomPatterns();
+      closeModal();
+      renderPatternList();
+    } catch (err) {
+      errorEl.textContent = 'Could not save. Check your connection and try again.';
+      console.error(err);
+    } finally {
+      saveBtn.disabled = false;
+      saveBtn.textContent = 'Add Pattern';
+    }
+  };
+}
+
+function openLibrary() {
+  view = 'library';
+  renderApp();
+}
+
+let charts = { overallChart: null, mostCompleteChart: null };
+let categoryCharts = Object.fromEntries([...PEOPLE, 'together'].map(k => [k, null]));
+
+async function renderDashboard() {
+  const content = document.getElementById('dashboardContent');
+  if (!fbStorage) {
+    content.innerHTML = '<p class="dashboard-note">Connect Firebase (see setup notes at the top of this file) to see live counts.</p>';
+    return;
+  }
+  content.innerHTML = '<p class="dashboard-loading">Loading counts...</p>';
+  const inv = await loadDashboardData();
+  if (!inv) {
+    content.innerHTML = '<p class="dashboard-note">Could not load counts. Check your Firebase setup and Storage rules.</p>';
+    return;
+  }
+
+  const personTotals = Object.fromEntries(PEOPLE.map(p => [p, 0]));
+  Object.values(inv.countsByPattern).forEach(c => { PEOPLE.forEach(p => { personTotals[p] += c[p]; }); });
+
+  const patternsStarted = Object.values(inv.countsByPattern).filter(c => PEOPLE.some(p => c[p] > 0)).length;
+  const patternsAll = Object.values(inv.countsByPattern).filter(c => PEOPLE.every(p => c[p] > 0)).length;
+
+  let piecesAllHave = 0;
+  Object.values(inv.patternPieceDetails).forEach(detail => {
+    detail[PEOPLE[0]].forEach(pieceSlug => {
+      if (PEOPLE.every(p => detail[p].has(pieceSlug))) piecesAllHave++;
+    });
+  });
+
+  const patternStats = patterns.map(([name]) => {
+    const pSlug = slug(name);
+    const detail = inv.patternPieceDetails[pSlug] || emptyDetail();
+    const combined = new Set(PEOPLE.flatMap(p => [...detail[p]])).size;
+    const customCount = inv.customCountByPattern[pSlug] || 0;
+    const total = pieceTypes.length + customCount;
+    const pct = total ? combined / total : 0;
+    return { name, pSlug, combined, total, pct };
+  });
+
+  const patternsWithTenPlus = patternStats.filter(p => p.combined >= 10).length;
+
+  const mostComplete = patternStats
+    .filter(p => p.combined > 0)
+    .sort((a, b) => b.pct - a.pct || b.combined - a.combined)
+    .slice(0, 10);
+
+  const diversityRanked = pieceTypes
+    .map(piece => ({ piece, count: inv.pieceDiversity[slug(piece)] || 0 }))
+    .sort((a, b) => b.count - a.count);
+
+  const startedStats = patternStats.filter(p => p.combined > 0);
+  const avgCompletionPct = startedStats.length
+    ? Math.round((startedStats.reduce((sum, p) => sum + p.pct, 0) / startedStats.length) * 100)
+    : 0;
+
+  const topPiece = diversityRanked.length && diversityRanked[0].count > 0 ? diversityRanked[0] : null;
+
+  content.innerHTML = `
+    <h3 class="dash-subheading dash-subheading-center">Overall Completion</h3>
+    <div class="dash-donuts">
+      ${PEOPLE.map(p => `
+        <div class="donut-wrap">
+          <div class="overall-number ${p}">${personTotals[p]}</div>
+          <div class="donut-name">${personLabel(p)}</div>
+        </div>
+      `).join('')}
+      <div class="donut-wrap">
+        <div class="overall-number together">${inv.combinedTotal}</div>
+        <div class="donut-name">Together</div>
+      </div>
+    </div>
+    <div class="overall-chart-outer">
+      <div class="dash-chart-scroll">
+        <div id="overallChartWrap"><canvas id="overallChart"></canvas></div>
+      </div>
+    </div>
+
+    <h3 class="dash-subheading">Individual Collection Stats</h3>
+    <div class="category-lookup">
+      <select id="categorySelect" class="category-select">
+        <option value="">Select a Stangl pattern&hellip;</option>
+        ${patterns.map(([name]) => `<option value="${slug(name)}">${name}</option>`).join('')}
+      </select>
+      <div id="categoryStats"></div>
+    </div>
+
+    <h3 class="dash-subheading">At a Glance</h3>
+    <div class="stat-strip">
+      <div class="stat-card">
+        <div class="stat-card-number c-plum">${patternsStarted}<span class="stat-card-of">/${patterns.length}</span></div>
+        <div class="stat-card-label">Patterns Started</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-card-number c-plum">${inv.totalPiecesOwned}</div>
+        <div class="stat-card-label">Total Pieces Owned</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-card-number c-plum">${patternsAll}</div>
+        <div class="stat-card-label">Patterns You All Collect</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-card-number c-plum">${piecesAllHave}</div>
+        <div class="stat-card-label">Pieces You All Have</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-card-number c-plum">${patternsWithTenPlus}</div>
+        <div class="stat-card-label">Patterns With 10+ Pieces</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-card-number c-plum">${avgCompletionPct}%</div>
+        <div class="stat-card-label">Avg. Completion (Started Patterns)</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-card-number stat-card-text c-plum">${topPiece ? topPiece.piece : '\u2014'}</div>
+        <div class="stat-card-label">${topPiece ? `Most-Owned Piece \u2014 in ${topPiece.count} pattern${topPiece.count === 1 ? '' : 's'}` : 'Most-Owned Piece'}</div>
+      </div>
+    </div>
+
+    <div class="dashboard-grid-2col">
+      <div>
+        <h3 class="dash-subheading">Most Complete Patterns</h3>
+        ${mostComplete.length === 0
+          ? '<p class="dashboard-note">No photos yet &mdash; upload a few to see your leading patterns here.</p>'
+          : `<div class="rank-list" id="mostCompleteList"></div>`}
+      </div>
+      <div>
+        <h3 class="dash-subheading">Most Complete Patterns</h3>
+        ${mostComplete.length === 0
+          ? '<p class="dashboard-note">No photos yet &mdash; upload a few to see this chart.</p>'
+          : `<div class="dash-chart-scroll"><div id="mostCompleteChartWrap"><canvas id="mostCompleteChart"></canvas></div></div>`}
+      </div>
+    </div>
+
+    <h3 class="dash-subheading">Pattern Heat Grid</h3>
+    <p class="dashboard-note heat-grid-note">Brighter tiles are further along. Tap any pattern to open it.</p>
+    <div class="heat-grid" id="heatGrid"></div>
+  `;
+
+  Object.values(charts).forEach(c => { if (c) c.destroy(); });
+
+  const cordColor = getComputedStyle(document.documentElement).getPropertyValue('--cord').trim() || '#d9a75a';
+  const momColor = getComputedStyle(document.documentElement).getPropertyValue('--mom').trim() || '#8faa8b';
+  const grandmaColor = getComputedStyle(document.documentElement).getPropertyValue('--grandma').trim() || '#b3565a';
+  const emberColor = getComputedStyle(document.documentElement).getPropertyValue('--ember').trim() || '#ef7d4f';
+  const slateColor = getComputedStyle(document.documentElement).getPropertyValue('--slate').trim() || '#5c7a94';
+  const roseColor = getComputedStyle(document.documentElement).getPropertyValue('--rose').trim() || '#b3565a';
+  const personColors = { cord: cordColor, mom: momColor, grandma: grandmaColor };
+  const gridColor = 'rgba(246,236,220,0.08)';
+  const tickColor = 'rgba(246,236,220,0.55)';
+
+  document.getElementById('categorySelect').addEventListener('change', (e) => {
+    renderCategoryStats(e.target.value, inv, personColors, emberColor);
+  });
+
+  // Pattern Heat Grid (plain DOM, no Chart.js involved -- isolated so a
+  // failure here can never block anything else on the dashboard)
+  try {
+    const heatGrid = document.getElementById('heatGrid');
+    patternStats.forEach(p => {
+      const tile = document.createElement('div');
+      tile.className = 'heat-tile';
+      tile.style.backgroundColor = heatColor(p.pct);
+      tile.title = `${p.name} \u2014 ${Math.round(p.pct * 100)}%`;
+      tile.addEventListener('click', () => openDetail(p.name));
+      heatGrid.appendChild(tile);
+    });
+  } catch (err) {
+    console.error('Heat grid rendering failed:', err);
+  }
+
+  // Most Complete Patterns (plain DOM list with CSS progress bars)
+  try {
+    if (mostComplete.length > 0) {
+      const list = document.getElementById('mostCompleteList');
+      mostComplete.forEach((p, i) => {
+        const row = document.createElement('div');
+        row.className = 'rank-row';
+        row.innerHTML = `
+          <span class="rank-num">${i + 1}</span>
+          <span class="rank-name">${p.name}</span>
+          <div class="rank-bar-track"><div class="rank-bar-fill" style="width:${Math.round(p.pct * 100)}%; background:${slateColor};"></div></div>
+          <span class="rank-pct">${p.combined}</span>
+        `;
+        row.addEventListener('click', () => openDetail(p.name));
+        list.appendChild(row);
+      });
+    }
+  } catch (err) {
+    console.error('Most complete list rendering failed:', err);
+  }
+
+  try {
+    const ocCanvas = document.getElementById('overallChart');
+    const ocWrap = document.getElementById('overallChartWrap');
+    ocWrap.style.height = '180px';
+
+    function showOverallChartError(message) {
+      ocWrap.innerHTML = `<p class="dashboard-note" style="color:#ffb4a3;">Chart couldn't load: ${message}</p>`;
+    }
+
+    waitForChartJs(
+      () => {
+        requestAnimationFrame(() => {
+          try {
+            const rect = ocCanvas.getBoundingClientRect();
+            if (rect.width === 0 || rect.height === 0) {
+              showOverallChartError(`canvas has zero size (${Math.round(rect.width)}x${Math.round(rect.height)}px) even after layout settled.`);
+              return;
+            }
+            charts.overallChart = new Chart(ocCanvas, {
+              type: 'bar',
+              data: {
+                labels: [...PEOPLE.map(personLabel), 'Together'],
+                datasets: [{
+                  data: [...PEOPLE.map(p => personTotals[p]), inv.combinedTotal],
+                  backgroundColor: [...PEOPLE.map(p => personColors[p]), emberColor],
+                  borderRadius: 6,
+                  maxBarThickness: 70
+                }]
+              },
+              options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: { legend: { display: false } },
+                scales: {
+                  x: { ticks: { color: tickColor, font: { size: 11 } }, grid: { display: false } },
+                  y: { beginAtZero: true, ticks: { stepSize: 1, color: tickColor, font: { size: 9 } }, grid: { color: gridColor } }
+                }
+              }
+            });
+            charts.overallChart.resize();
+          } catch (err) {
+            showOverallChartError(`${err.name}: ${err.message}`);
+            console.error('Overall chart rendering failed (deferred):', err);
+          }
+        });
+      },
+      () => {
+        showOverallChartError('the Chart.js library never loaded (likely a network/CDN issue).');
+      }
+    );
+  } catch (err) {
+    console.error('Overall chart rendering failed:', err);
+  }
+
+  try {
+    if (mostComplete.length > 0) {
+      const mcCanvas = document.getElementById('mostCompleteChart');
+      const mcWrap = document.getElementById('mostCompleteChartWrap');
+      mcWrap.style.height = Math.max(mostComplete.length * 28, 120) + 'px';
+
+      function showChartError(message) {
+        mcWrap.innerHTML = `<p class="dashboard-note" style="color:#ffb4a3;">Chart couldn't load: ${message}</p>`;
+      }
+
+      waitForChartJs(
+        () => {
+        // Deferred to the next frame: this canvas lives inside a CSS grid
+        // column, and grid track widths can resolve after this synchronous
+        // script runs. Creating the chart before the browser finishes that
+        // layout pass can leave Chart.js measuring a zero-width canvas and
+        // silently drawing nothing, even though no error is thrown.
+        requestAnimationFrame(() => {
+          try {
+            const rect = mcCanvas.getBoundingClientRect();
+            if (rect.width === 0 || rect.height === 0) {
+              showChartError(`canvas has zero size (${Math.round(rect.width)}x${Math.round(rect.height)}px) even after layout settled.`);
+              return;
+            }
+            charts.mostCompleteChart = new Chart(mcCanvas, {
+              type: 'bar',
+              data: {
+                labels: mostComplete.map(p => p.name),
+                datasets: [{
+                  data: mostComplete.map(p => p.combined),
+                  backgroundColor: emberColor,
+                  borderRadius: 3
+                }]
+              },
+              options: {
+                indexAxis: 'y',
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: { legend: { display: false } },
+                scales: {
+                  x: { beginAtZero: true, ticks: { stepSize: 1, font: { size: 9 }, color: tickColor }, grid: { color: gridColor } },
+                  y: { ticks: { font: { size: 9 }, color: tickColor }, grid: { color: gridColor } }
+                }
+              }
+            });
+            charts.mostCompleteChart.resize();
+          } catch (err) {
+            showChartError(`${err.name}: ${err.message}`);
+            console.error('Most complete chart rendering failed (deferred):', err);
+          }
+        });
+        },
+        () => {
+          showChartError('the Chart.js library never loaded (likely a network/CDN issue).');
+        }
+      );
+    }
+  } catch (err) {
+    console.error('Most complete chart rendering failed:', err);
+    const wrapEl = document.getElementById('mostCompleteChartWrap');
+    if (wrapEl) wrapEl.innerHTML = `<p class="dashboard-note" style="color:#ffb4a3;">Chart couldn't load: ${err.name}: ${err.message}</p>`;
+  }
+}
+
+function heatColor(pct) {
+  const dark = [74, 53, 33];    // --ink-3 (unstarted)
+  const warm = [63, 122, 114];  // --teal (nearly done)
+  const mixed = dark.map((c, i) => Math.round(c + (warm[i] - c) * pct));
+  return `rgb(${mixed.join(',')})`;
+}
+
+// Populates the "This Pattern's Stats" panel on a pattern's own detail
+// page, reusing the exact same rendering as the Dashboard's Individual
+// Collection Stats section (same donuts, same checklist) so the two never
+// drift apart -- just pointed at a single, already-known pattern instead
+// of a dropdown-selected one. Reflects state as of when the page loaded,
+// same as the Dashboard's own checklist (both need a manual refresh to
+// pick up brand-new uploads made elsewhere).
+async function renderDetailSidebarStats(pSlug) {
+  const container = document.getElementById('categoryStats');
+  if (!container) return;
+  if (!fbStorage) {
+    container.innerHTML = '<p class="dashboard-note">Connect Firebase (see setup notes at the top of this file) to see live counts.</p>';
+    return;
+  }
+  try {
+    const inv = await loadDashboardData();
+    if (!inv) {
+      container.innerHTML = '<p class="dashboard-note">Could not load counts. Check your Firebase setup and Storage rules.</p>';
+      return;
+    }
+    const cordColor = getComputedStyle(document.documentElement).getPropertyValue('--cord').trim() || '#d9a75a';
+    const momColor = getComputedStyle(document.documentElement).getPropertyValue('--mom').trim() || '#8faa8b';
+    const grandmaColor = getComputedStyle(document.documentElement).getPropertyValue('--grandma').trim() || '#b3565a';
+    const emberColor = getComputedStyle(document.documentElement).getPropertyValue('--ember').trim() || '#ef7d4f';
+    const personColors = { cord: cordColor, mom: momColor, grandma: grandmaColor };
+    await renderCategoryStats(pSlug, inv, personColors, emberColor);
+  } catch (err) {
+    container.innerHTML = '<p class="dashboard-note">Could not load counts. Check your Firebase setup and Storage rules.</p>';
+    console.error('Detail sidebar stats failed:', err);
+  }
+}
+
+async function renderCategoryStats(pSlug, inv, personColors, emberColor) {
+  const container = document.getElementById('categoryStats');
+  Object.values(categoryCharts).forEach(c => { if (c) c.destroy(); });
+  categoryCharts = Object.fromEntries([...PEOPLE, 'together'].map(k => [k, null]));
+  if (!pSlug) {
+    container.innerHTML = '';
+    return;
+  }
+  container.innerHTML = '<p class="dashboard-loading">Loading...</p>';
+  const patternEntry = patterns.find(([name]) => slug(name) === pSlug);
+  const patternName = patternEntry ? patternEntry[0] : pSlug;
+  const counts = inv.countsByPattern[pSlug] || emptyCounts();
+  const detail = inv.patternPieceDetails[pSlug] || emptyDetail();
+  const customPieces = await loadCustomPieces(pSlug);
+  const total = pieceTypes.length + customPieces.length;
+  const combined = new Set(PEOPLE.flatMap(p => [...detail[p]])).size;
+  const personPct = Object.fromEntries(PEOPLE.map(p => [p, total ? Math.round((counts[p] / total) * 100) : 0]));
+  const togetherPct = total ? Math.round((combined / total) * 100) : 0;
+
+  function pieceRow(pieceLabel, pieceSlug, isCustom) {
+    const marks = PEOPLE.map(p => {
+      const has = detail[p].has(pieceSlug);
+      return `<span class="category-piece-mark ${p} ${has ? 'yes' : ''}">${has ? '\u2713' : '\u2014'}</span>`;
+    }).join('');
+    return `
+      <div class="category-piece-row" style="grid-template-columns: 1fr repeat(${PEOPLE.length}, 60px);">
+        <span class="category-piece-name">${pieceLabel}</span>
+        ${marks}
+      </div>
+    `;
+  }
+
+  const allPieces = [
+    ...pieceTypes.map(piece => ({ label: piece, pieceSlug: slug(piece) })),
+    ...customPieces.map(cp => ({ label: cp.label, pieceSlug: customPiecePieceSlug(cp) }))
+  ];
+  // Stable sort: pieces with a checkmark from anyone float to the top,
+  // otherwise pieces keep their original order within each group.
+  const sortedPieces = allPieces
+    .map((piece, i) => ({ piece, hasAny: PEOPLE.some(p => detail[p].has(piece.pieceSlug)), i }))
+    .sort((a, b) => (b.hasAny - a.hasAny) || (a.i - b.i))
+    .map(x => x.piece);
+
+  const rows = sortedPieces.map(p => pieceRow(p.label, p.pieceSlug)).join('');
+
+  container.innerHTML = `
+    <div class="category-summary">
+      <h4>${patternName}</h4>
+    </div>
+    <div class="dash-donuts category-donuts">
+      ${PEOPLE.map(p => `
+        <div class="donut-wrap">
+          <canvas id="categoryDonut${p}" height="90"></canvas>
+          <div class="donut-pct ${p}">${personPct[p]}%</div>
+          <div class="donut-name">${personLabel(p)} (${counts[p]}/${total})</div>
+        </div>
+      `).join('')}
+      <div class="donut-wrap">
+        <canvas id="categoryDonutTogether" height="90"></canvas>
+        <div class="donut-pct together">${togetherPct}%</div>
+        <div class="donut-name">Together (${combined}/${total})</div>
+      </div>
+    </div>
+    <div class="category-piece-list">
+      <div class="category-piece-row category-piece-header" style="grid-template-columns: 1fr repeat(${PEOPLE.length}, 60px);">
+        <span class="category-piece-name">Piece</span>
+        ${PEOPLE.map(p => `<span class="category-piece-mark ${p}">${personLabel(p)}</span>`).join('')}
+      </div>
+      ${rows}
+    </div>
+  `;
+
+  try {
+    const trackColor = 'rgba(246,236,220,0.1)';
+    function makeCategoryDonut(canvasId, ownedCount, totalCount, color) {
+      const ctx = document.getElementById(canvasId);
+      return new Chart(ctx, {
+        type: 'doughnut',
+        data: {
+          datasets: [{
+            data: [ownedCount, Math.max(totalCount - ownedCount, 0)],
+            backgroundColor: [color, trackColor],
+            borderWidth: 0
+          }]
+        },
+        options: {
+          cutout: '72%',
+          responsive: true,
+          plugins: { legend: { display: false }, tooltip: { enabled: false } },
+          animation: false
+        }
+      });
+    }
+    PEOPLE.forEach(p => {
+      categoryCharts[p] = makeCategoryDonut(`categoryDonut${p}`, counts[p], total, personColors[p]);
+    });
+    categoryCharts.together = makeCategoryDonut('categoryDonutTogether', combined, total, emberColor);
+  } catch (err) {
+    console.error('Category chart rendering failed:', err);
+  }
+}
+
+function renderPatternList() {
+  const searchTerm = (document.getElementById('searchBox')?.value || '').toLowerCase();
+  const filtered = patterns.filter(([name]) => name.toLowerCase().includes(searchTerm));
+  const groups = groupByLetter(filtered);
+  const letters = Object.keys(groups).sort();
+  const main = document.getElementById('main');
+  main.innerHTML = '';
+
+  if (letters.length === 0) {
+    main.innerHTML = '<div class="empty-note">No patterns match your search.</div>';
+  }
+
+  letters.forEach(letter => {
+    const heading = document.createElement('h2');
+    heading.className = 'letter-heading';
+    heading.textContent = letter;
+    main.appendChild(heading);
+
+    const rowsGrid = document.createElement('div');
+    rowsGrid.className = 'letter-rows-grid';
+
+    groups[letter].forEach(([name, url]) => {
+      const row = document.createElement('div');
+      row.className = 'pattern-row';
+      row.innerHTML = `
+        <span class="pattern-name">${name}</span>
+        ${url ? `<a class="ext-link" href="${url}" target="_blank" rel="noopener noreferrer" title="View photo">\u2197</a>` : ''}
+      `;
+      row.addEventListener('click', (e) => {
+        if (e.target.closest('.ext-link')) return;
+        openDetail(name);
+      });
+      rowsGrid.appendChild(row);
+    });
+
+    main.appendChild(rowsGrid);
+  });
+}
+
+function openDetail(name) {
+  currentPatternIndex = patterns.findIndex(p => p[0] === name);
+  view = 'detail';
+  renderApp();
+}
+
+function createPieceBlock(pSlug, pieceLabel, pieceSlug, isCustom) {
+  const block = document.createElement('div');
+  block.className = 'piece-block' + (isCustom ? ' piece-block-custom' : '');
+  block.innerHTML = `
+    <div class="piece-title-row">
+      <p class="piece-title">${pieceLabel}</p>
+      ${isCustom ? `
+        <span class="piece-title-actions">
+          <button class="edit-piece-btn" type="button" title="Edit this piece">&#9998;</button>
+          <button class="remove-piece-btn" type="button" title="Remove this piece">&times;</button>
+        </span>
+      ` : ''}
+    </div>
+    <div class="person-row">
+      ${PEOPLE.map(person => `
+        <div class="person-col">
+          <div class="person-label ${person}">${personLabel(person)}</div>
+          <div class="photo-slot" id="slot-${pSlug}-${pieceSlug}-${person}">
+            <span class="upload-label">Tap to upload</span>
+            <input type="file" accept="image/*" id="file-${pSlug}-${pieceSlug}-${person}">
+          </div>
+          <div class="quantity-control" id="qty-${pSlug}-${pieceSlug}-${person}"></div>
+        </div>
+      `).join('')}
+    </div>
+  `;
+  return block;
+}
+
+function setupQuantityControl(pSlug, pieceSlug, pieceLabel, person, qty) {
+  const container = document.getElementById(`qty-${pSlug}-${pieceSlug}-${person}`);
+  if (!container) return;
+  container.innerHTML = qty
+    ? `<span class="quantity-display-wrap">
+         <button class="quantity-display" type="button">Quantity: x${qty}</button>
+         <button class="quantity-delete-btn" type="button" title="Remove quantity">&times;</button>
+       </span>`
+    : `<button class="quantity-add-btn" type="button">+ Add Quantity</button>`;
+
+  if (qty) {
+    container.querySelector('.quantity-display').addEventListener('click', () => {
+      openQuantityModal(pSlug, pieceSlug, pieceLabel, person, qty);
+    });
+    container.querySelector('.quantity-delete-btn').addEventListener('click', async () => {
+      const btn = container.querySelector('.quantity-delete-btn');
+      btn.disabled = true;
+      try {
+        await clearPatternPieceQuantity(pSlug, pieceSlug, person, qty);
+        setupQuantityControl(pSlug, pieceSlug, pieceLabel, person, null);
+      } catch (err) {
+        btn.disabled = false;
+        alert('Could not remove quantity. Check your connection and try again.');
+        console.error(err);
+      }
+    });
+  } else {
+    container.querySelector('.quantity-add-btn').addEventListener('click', () => {
+      openQuantityModal(pSlug, pieceSlug, pieceLabel, person, qty);
+    });
+  }
+}
+
+async function loadAndRenderCustomPieces(pSlug) {
+  const customPieces = await loadCustomPieces(pSlug);
+  const quantities = await loadPatternQuantities(pSlug);
+  const container = document.getElementById('customPieceList');
+  if (!container) return;
+  container.innerHTML = '';
+  customPieces.forEach(cp => {
+    const pieceSlug = customPiecePieceSlug(cp);
+    const block = createPieceBlock(pSlug, cp.label, pieceSlug, true);
+    container.appendChild(block);
+    PEOPLE.forEach(person => {
+      setupSlot(pSlug, pieceSlug, person);
+      setupQuantityControl(pSlug, pieceSlug, cp.label, person, quantities[`${pieceSlug}--${person}`]);
+    });
+    block.querySelector('.remove-piece-btn').addEventListener('click', () => removeCustomPiece(pSlug, cp));
+    block.querySelector('.edit-piece-btn').addEventListener('click', () => openEditCustomPieceModal(pSlug, cp));
+  });
+}
+
+async function removeCustomPiece(pSlug, cp) {
+  if (!confirm('Remove this piece from the checklist?\n\n(Any photos already uploaded for it stay in storage but won\'t show here anymore.)')) return;
+  try {
+    await deleteCustomPieceMarker(pSlug, cp);
+    await loadAndRenderCustomPieces(pSlug);
+  } catch (err) {
+    alert('Could not remove. Check your connection and try again.');
+    console.error(err);
+  }
+}
+
+function splitCustomPieceLabel(label) {
+  const match = label.match(/^(.*) \(([^()]*)\)$/);
+  if (match) return { name: match[1], size: match[2] };
+  return { name: label, size: '' };
+}
+
+async function renderPieceListInOrder(pSlug) {
+  const uploadedSlugs = await loadPatternPieceUploads(pSlug);
+  const quantities = await loadPatternQuantities(pSlug);
+  const list = document.getElementById('pieceList');
+  if (!list) return; // user navigated away before this finished loading
+
+  const withUploads = pieceTypes.filter(piece => uploadedSlugs.has(slug(piece)));
+  const withoutUploads = pieceTypes.filter(piece => !uploadedSlugs.has(slug(piece)));
+
+  list.innerHTML = '';
+
+  function addBlock(piece) {
+    const pieceSlug = slug(piece);
+    const block = createPieceBlock(pSlug, piece, pieceSlug, false);
+    list.appendChild(block);
+    PEOPLE.forEach(person => {
+      setupSlot(pSlug, pieceSlug, person);
+      setupQuantityControl(pSlug, pieceSlug, piece, person, quantities[`${pieceSlug}--${person}`]);
+    });
+  }
+
+  if (withUploads.length > 0) {
+    const heading = document.createElement('h2');
+    heading.className = 'letter-heading';
+    heading.textContent = '\u2713 Already Uploaded';
+    list.appendChild(heading);
+    withUploads.forEach(addBlock);
+
+    const heading2 = document.createElement('h2');
+    heading2.className = 'letter-heading';
+    heading2.textContent = 'Still Needed';
+    list.appendChild(heading2);
+  }
+
+  withoutUploads.forEach(addBlock);
+}
+
+function renderDetail() {
+  const [name, url] = patterns[currentPatternIndex];
+  setHeader(true);
+  const pSlug = slug(name);
+  const isCustomPattern = customPatternNames.has(name);
+
+  const app = document.getElementById('app');
+  app.innerHTML = `
+    <p class="page-subtitle">${name}</p>
+    <div class="detail-header-block">
+      ${url ? `<a class="detail-link" href="${url}" target="_blank" rel="noopener noreferrer">View pattern photo on Replacements.com \u2197</a>` : ''}
+      ${!fbStorage ? '<div class="config-warning">Photo uploads are not active yet. Add your Firebase config near the top of this file to enable saving.</div>' : ''}
+      <button id="addCustomPieceBtn" class="add-custom-btn" type="button">+ Add a Piece</button>
+      ${isCustomPattern ? '<button id="deletePatternBtn" class="delete-pattern-btn" type="button">Delete This Pattern</button>' : ''}
+    </div>
+    <div class="detail-mobile-tabs">
+      <button class="detail-mobile-tab-btn active" data-tab="photos" type="button">Photos</button>
+      <button class="detail-mobile-tab-btn" data-tab="stats" type="button">Stats</button>
+    </div>
+    <div class="detail-content-grid mobile-show-photos" id="detailContentGrid">
+      <div class="detail-left-col">
+        <main id="pieceList"></main>
+        <main id="customPieceList"></main>
+      </div>
+      <div class="detail-right-col">
+        <h3 class="dash-subheading">This Pattern's Stats</h3>
+        <div class="category-lookup">
+          <div id="categoryStats"><p class="dashboard-loading">Loading...</p></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="custom-piece-modal-overlay" id="customPieceModal">
+      <div class="custom-piece-modal-box">
+        <button class="custom-piece-modal-close" id="customPieceModalClose" type="button">&times;</button>
+        <h3 id="customPieceModalTitle">Add a Piece</h3>
+        <input type="text" id="customPieceName" placeholder="Piece name (e.g. Cookie Jar)">
+        <input type="text" id="customPieceSize" placeholder="Size (optional, e.g. 9&quot; tall)">
+        <div class="custom-piece-form-actions">
+          <button id="customPieceSave" class="custom-piece-save-btn" type="button">Add Piece</button>
+          <button id="customPieceCancel" class="custom-piece-cancel-btn" type="button">Cancel</button>
+        </div>
+        <p id="customPieceError" class="custom-piece-error"></p>
+      </div>
+    </div>
+
+    <div class="custom-piece-modal-overlay" id="quantityModal">
+      <div class="custom-piece-modal-box">
+        <button class="custom-piece-modal-close" id="quantityModalClose" type="button">&times;</button>
+        <h3>Set Quantity</h3>
+        <p id="quantityModalSubtitle" class="quantity-modal-subtitle"></p>
+        <select id="quantitySelect">
+          <option value="">Select a quantity&hellip;</option>
+          ${Array.from({ length: 19 }, (_, i) => i + 2).map(n => `<option value="${n}">${n}</option>`).join('')}
+        </select>
+        <div class="custom-piece-form-actions">
+          <button id="quantitySave" class="custom-piece-save-btn" type="button">Save</button>
+          <button id="quantityCancel" class="custom-piece-cancel-btn" type="button">Cancel</button>
+        </div>
+        <button id="quantityRemoveBtn" class="quantity-remove-btn" type="button">Remove Quantity</button>
+        <p id="quantityError" class="custom-piece-error"></p>
+      </div>
+    </div>
+  `;
+
+  document.getElementById('pieceList').innerHTML = '<p class="dashboard-loading">Loading checklist...</p>';
+  renderPieceListInOrder(pSlug);
+
+  loadAndRenderCustomPieces(pSlug);
+
+  renderDetailSidebarStats(pSlug);
+
+  const modal = document.getElementById('customPieceModal');
+  const modalTitle = document.getElementById('customPieceModalTitle');
+  const nameInput = document.getElementById('customPieceName');
+  const sizeInput = document.getElementById('customPieceSize');
+  const errorEl = document.getElementById('customPieceError');
+  const saveBtn = document.getElementById('customPieceSave');
+  editingCustomPiece = null;
+
+  function openCustomPieceModal() {
+    editingCustomPiece = null;
+    modalTitle.textContent = 'Add a Piece';
+    saveBtn.textContent = 'Add Piece';
+    nameInput.value = '';
+    sizeInput.value = '';
+    errorEl.textContent = '';
+    modal.classList.add('open');
+    nameInput.focus();
+  }
+  function closeCustomPieceModal() {
+    modal.classList.remove('open');
+    editingCustomPiece = null;
+    nameInput.value = '';
+    sizeInput.value = '';
+    errorEl.textContent = '';
+  }
+  window.__openEditCustomPieceModal = (editPSlug, cp) => {
+    editingCustomPiece = cp;
+    const { name, size } = splitCustomPieceLabel(cp.label);
+    modalTitle.textContent = 'Edit Piece';
+    saveBtn.textContent = 'Save Changes';
+    nameInput.value = name;
+    sizeInput.value = size;
+    errorEl.textContent = '';
+    modal.classList.add('open');
+    nameInput.focus();
+  };
+
+  document.getElementById('addCustomPieceBtn').onclick = openCustomPieceModal;
+  document.getElementById('customPieceModalClose').onclick = closeCustomPieceModal;
+  document.getElementById('customPieceCancel').onclick = closeCustomPieceModal;
+  modal.onclick = (e) => { if (e.target === modal) closeCustomPieceModal(); };
+
+  const deletePatternBtn = document.getElementById('deletePatternBtn');
+  if (deletePatternBtn) {
+    deletePatternBtn.onclick = async () => {
+      const confirmed = confirm(
+        `Delete "${name}" entirely?\n\n` +
+        `This removes it from the library. Any photos already uploaded for it ` +
+        `will stay in storage but won't be reachable through the site anymore. ` +
+        `This can't be undone.`
+      );
+      if (!confirmed) return;
+      deletePatternBtn.disabled = true;
+      deletePatternBtn.textContent = 'Deleting...';
+      try {
+        const cp = customPatternByName.get(name);
+        if (cp) await deleteCustomPatternEntry(cp);
+        await refreshCustomPatterns();
+        openLibrary();
+      } catch (err) {
+        alert('Could not delete. Check your connection and try again.');
+        console.error(err);
+        deletePatternBtn.disabled = false;
+        deletePatternBtn.textContent = 'Delete This Pattern';
+      }
+    };
+  }
+
+  document.querySelectorAll('.detail-mobile-tab-btn').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.detail-mobile-tab-btn').forEach((b) => b.classList.remove('active'));
+      btn.classList.add('active');
+      const grid = document.getElementById('detailContentGrid');
+      grid.classList.remove('mobile-show-photos', 'mobile-show-stats');
+      grid.classList.add(btn.dataset.tab === 'stats' ? 'mobile-show-stats' : 'mobile-show-photos');
+      const titleEl = document.querySelector('.page-subtitle');
+      if (titleEl) titleEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+  });
+
+  saveBtn.onclick = async () => {
+    const pieceName = nameInput.value.trim();
+    const pieceSize = sizeInput.value.trim();
+    errorEl.textContent = '';
+    if (!fbStorage) {
+      errorEl.textContent = 'Connect Firebase (see setup notes at the top of this file) to add pieces.';
+      return;
+    }
+    if (!pieceName) {
+      errorEl.textContent = 'Please enter a piece name.';
+      return;
+    }
+    if (pieceName.includes('/') || pieceSize.includes('/')) {
+      errorEl.textContent = 'Piece name and size can\'t contain a "/" character.';
+      return;
+    }
+    const label = pieceSize ? `${pieceName} (${pieceSize})` : pieceName;
+    const newSlug = slug(label);
+    const isEditing = !!editingCustomPiece;
+    saveBtn.disabled = true;
+    saveBtn.textContent = isEditing ? 'Saving...' : 'Adding...';
+    try {
+      const existing = await loadCustomPieces(pSlug);
+      const others = isEditing
+        ? existing.filter(cp => !(cp.legacy === editingCustomPiece.legacy && cp.id === editingCustomPiece.id && cp.label === editingCustomPiece.label))
+        : existing;
+      const takenSlugs = pieceTypes.map(p => slug(p)).concat(others.map(cp => slug(cp.label)));
+      if (takenSlugs.includes(newSlug)) {
+        errorEl.textContent = 'This piece is already on the checklist.';
+        return;
+      }
+      if (isEditing) {
+        if (editingCustomPiece.legacy) {
+          const proceed = confirm(
+            'This piece was created before renaming was supported.\n\n' +
+            'Renaming it will start it fresh under its new name \u2014 any photos or ' +
+            'quantities already added for it won\'t carry over automatically. Continue?'
+          );
+          if (!proceed) { return; }
+        }
+        await renameCustomPiece(pSlug, editingCustomPiece, label);
+      } else {
+        await addCustomPiece(pSlug, label);
+      }
+      closeCustomPieceModal();
+      await loadAndRenderCustomPieces(pSlug);
+    } catch (err) {
+      errorEl.textContent = 'Could not save. Check your connection and try again.';
+      console.error(err);
+    } finally {
+      saveBtn.disabled = false;
+      saveBtn.textContent = isEditing ? 'Save Changes' : 'Add Piece';
+    }
+  };
+
+  const qtyModal = document.getElementById('quantityModal');
+  const qtySelect = document.getElementById('quantitySelect');
+  const qtyError = document.getElementById('quantityError');
+  const qtySaveBtn = document.getElementById('quantitySave');
+  const qtyRemoveBtn = document.getElementById('quantityRemoveBtn');
+
+  document.getElementById('quantityModalClose').onclick = closeQuantityModal;
+  document.getElementById('quantityCancel').onclick = closeQuantityModal;
+  qtyModal.onclick = (e) => { if (e.target === qtyModal) closeQuantityModal(); };
+
+  qtySaveBtn.onclick = async () => {
+    qtyError.textContent = '';
+    const val = qtySelect.value;
+    if (!val) {
+      qtyError.textContent = 'Please select a quantity.';
+      return;
+    }
+    const qty = parseInt(val, 10);
+    const ctx = quantityEditContext;
+    if (!ctx) return;
+    qtySaveBtn.disabled = true;
+    try {
+      await setPatternPieceQuantity(ctx.pSlug, ctx.pieceSlug, ctx.person, qty, ctx.currentQty);
+      setupQuantityControl(ctx.pSlug, ctx.pieceSlug, ctx.pieceLabel, ctx.person, qty);
+      closeQuantityModal();
+    } catch (err) {
+      qtyError.textContent = 'Could not save. Check your connection and try again.';
+      console.error(err);
+    } finally {
+      qtySaveBtn.disabled = false;
+    }
+  };
+
+  qtyRemoveBtn.onclick = async () => {
+    const ctx = quantityEditContext;
+    if (!ctx || ctx.currentQty == null) return;
+    qtyError.textContent = '';
+    qtyRemoveBtn.disabled = true;
+    try {
+      await clearPatternPieceQuantity(ctx.pSlug, ctx.pieceSlug, ctx.person, ctx.currentQty);
+      setupQuantityControl(ctx.pSlug, ctx.pieceSlug, ctx.pieceLabel, ctx.person, null);
+      closeQuantityModal();
+    } catch (err) {
+      qtyError.textContent = 'Could not remove. Check your connection and try again.';
+      console.error(err);
+    } finally {
+      qtyRemoveBtn.disabled = false;
+    }
+  };
+}
+
+let editingCustomPiece = null;
+
+function openEditCustomPieceModal(pSlug, cp) {
+  if (window.__openEditCustomPieceModal) window.__openEditCustomPieceModal(pSlug, cp);
+}
+
+let quantityEditContext = null;
+
+function openQuantityModal(pSlug, pieceSlug, pieceLabel, person, currentQty) {
+  quantityEditContext = { pSlug, pieceSlug, pieceLabel, person, currentQty };
+  document.getElementById('quantityModalSubtitle').textContent =
+    `${pieceLabel} \u2014 ${personLabel(person)}`;
+  document.getElementById('quantitySelect').value = currentQty ? String(currentQty) : '';
+  document.getElementById('quantityRemoveBtn').style.display = currentQty ? 'block' : 'none';
+  document.getElementById('quantityError').textContent = '';
+  document.getElementById('quantityModal').classList.add('open');
+}
+
+function closeQuantityModal() {
+  document.getElementById('quantityModal').classList.remove('open');
+  quantityEditContext = null;
+}
+
+// Phone camera photos are commonly several MB each and don't need to be
+// that large for a small checklist thumbnail or gallery tile. This resizes
+// to a reasonable max dimension and re-encodes as JPEG before upload,
+// which is what actually keeps uploads fast and the gallery ("Cord or Mom",
+// which loads every photo at once) from having to pull down potentially
+// hundreds of megabytes of full-resolution originals.
+function compressImage(file, maxDimension = 1600, quality = 0.82) {
+  return new Promise((resolve) => {
+    // Non-image files or anything the browser can't decode just pass through
+    // untouched rather than failing the upload.
+    if (!file.type || !file.type.startsWith('image/')) {
+      resolve(file);
+      return;
+    }
+    const img = new Image();
+    const objectUrl = URL.createObjectURL(file);
+    img.onload = () => {
+      URL.revokeObjectURL(objectUrl);
+      let { width, height } = img;
+      const scale = Math.min(1, maxDimension / Math.max(width, height));
+      const targetW = Math.round(width * scale);
+      const targetH = Math.round(height * scale);
+      const canvas = document.createElement('canvas');
+      canvas.width = targetW;
+      canvas.height = targetH;
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(img, 0, 0, targetW, targetH);
+      canvas.toBlob((blob) => {
+        resolve(blob || file);
+      }, 'image/jpeg', quality);
+    };
+    img.onerror = () => {
+      URL.revokeObjectURL(objectUrl);
+      resolve(file); // couldn't decode it client-side -- upload as-is
+    };
+    img.src = objectUrl;
+  });
+}
+
+// Marks the legacy photo cleanup as permanently done, stored in Firebase
+// itself so it stays remembered across every future visit, on any device
+// -- not just this browser's session. Once this exists, the site never
+// scans photos again: new uploads are already compressed at upload time,
+// so a one-time pass over old photos is genuinely all that's ever needed.
+const LEGACY_COMPRESS_MARKER = 'system/legacy-photos-compressed.json';
+
+async function hasCompletedLegacyCompression() {
+  try {
+    await fbStorage.ref().child(LEGACY_COMPRESS_MARKER).getDownloadURL();
+    return true;
+  } catch (err) {
+    return false;
+  }
+}
+
+async function markLegacyCompressionComplete() {
+  const blob = new Blob(['1'], { type: 'text/plain' });
+  await fbStorage.ref().child(LEGACY_COMPRESS_MARKER).put(blob);
+}
+
+// One-time cleanup for photos uploaded before compression existed. Goes
+// through every existing photo, skips anything already small, and
+// re-uploads the rest through the same compressImage() pipeline used for
+// new uploads. Safe to stop/re-run: already-small photos are skipped every
+// time, so nothing gets double-processed.
+async function compressExistingPhotos(onProgress) {
+  const result = await fbStorage.ref().listAll();
+  const items = result.items.filter(itemRef => itemRef.name.match(PHOTO_REGEX));
+  let compressed = 0, skipped = 0, failed = 0;
+  const SKIP_UNDER_BYTES = 600 * 1024;
+
+  for (let i = 0; i < items.length; i++) {
+    const itemRef = items[i];
+    onProgress(i + 1, items.length, { compressed, skipped, failed });
+    try {
+      const meta = await itemRef.getMetadata();
+      if (meta.size && meta.size < SKIP_UNDER_BYTES) {
+        skipped++;
+        continue;
+      }
+      const url = await itemRef.getDownloadURL();
+      const response = await fetch(url);
+      if (!response.ok) throw new Error('Fetch failed: ' + response.status);
+      const blob = await response.blob();
+      const compressedBlob = await compressImage(blob);
+      await itemRef.put(compressedBlob);
+      compressed++;
+    } catch (err) {
+      console.error('Failed to compress', itemRef.name, err);
+      failed++;
+    }
+  }
+
+  onProgress(items.length, items.length, { compressed, skipped, failed });
+  return { total: items.length, compressed, skipped, failed };
+}
+
+function setupSlot(pSlug, pieceSlug, person) {
+  const slotId = `slot-${pSlug}-${pieceSlug}-${person}`;
+  const fileId = `file-${pSlug}-${pieceSlug}-${person}`;
+  const slot = document.getElementById(slotId);
+  const fileInput = document.getElementById(fileId);
+  const path = photoPath(pSlug, pieceSlug, person);
+
+  slot.addEventListener('click', () => {
+    if (slot.querySelector('img')) return;
+    if (fbStorage) {
+      const currentFileInput = document.getElementById(fileId);
+      if (currentFileInput) currentFileInput.click();
+    }
+  });
+
+  fileInput.addEventListener('change', async () => {
+    const file = fileInput.files[0];
+    if (!file) return;
+    slot.classList.add('uploading');
+    slot.querySelector('.upload-label').textContent = 'Uploading...';
+    try {
+      const toUpload = await compressImage(file);
+      const ref = fbStorage.ref().child(path);
+      await ref.put(toUpload);
+      const url = await ref.getDownloadURL();
+      showPhoto(slot, url, path);
+    } catch (err) {
+      slot.querySelector('.upload-label').textContent = 'Upload failed \u2014 tap to retry';
+      slot.classList.remove('uploading');
+      console.error(err);
+    }
+  });
+
+  if (fbStorage) {
+    fbStorage.ref().child(path).getDownloadURL()
+      .then(url => showPhoto(slot, url, path))
+      .catch(() => { /* no photo yet, leave upload prompt */ });
+  }
+}
+
+function resetSlotToUpload(slot, fileId) {
+  slot.classList.remove('uploading');
+  slot.style.cursor = 'pointer';
+  slot.innerHTML = `
+    <span class="upload-label">Tap to upload</span>
+    <input type="file" accept="image/*" id="${fileId}">
+  `;
+  const newFileInput = document.getElementById(fileId);
+  return newFileInput;
+}
+
+function showPhoto(slot, url, path) {
+  slot.classList.remove('uploading');
+  slot.innerHTML = `
+    <img src="${url}" alt="" loading="lazy">
+    <button class="delete-photo-btn" type="button" title="Delete photo">&times;</button>
+  `;
+  slot.style.cursor = 'pointer';
+
+  const img = slot.querySelector('img');
+  img.addEventListener('click', (e) => {
+    e.stopPropagation();
+    openLightbox(url);
+  });
+
+  const deleteBtn = slot.querySelector('.delete-photo-btn');
+  deleteBtn.addEventListener('click', async (e) => {
+    e.stopPropagation();
+    if (!confirm('Delete this photo?')) return;
+    deleteBtn.disabled = true;
+    deleteBtn.textContent = '\u2026';
+    try {
+      await fbStorage.ref().child(path).delete();
+      const fileId = slot.id.replace('slot-', 'file-');
+      const newFileInput = resetSlotToUpload(slot, fileId);
+      newFileInput.addEventListener('change', async () => {
+        const file = newFileInput.files[0];
+        if (!file) return;
+        slot.classList.add('uploading');
+        slot.querySelector('.upload-label').textContent = 'Uploading...';
+        try {
+          const toUpload = await compressImage(file);
+          const ref = fbStorage.ref().child(path);
+          await ref.put(toUpload);
+          const newUrl = await ref.getDownloadURL();
+          showPhoto(slot, newUrl, path);
+        } catch (err) {
+          slot.querySelector('.upload-label').textContent = 'Upload failed \u2014 tap to retry';
+          slot.classList.remove('uploading');
+          console.error(err);
+        }
+      });
+    } catch (err) {
+      alert('Could not delete photo. Check your connection and try again.');
+      deleteBtn.disabled = false;
+      deleteBtn.textContent = '\u00d7';
+      console.error(err);
+    }
+  });
+}
+
+function openLightbox(src) {
+  document.getElementById('lightboxImg').src = src;
+  document.getElementById('lightbox').classList.add('open');
+}
+
+document.getElementById('lightboxClose').addEventListener('click', () => {
+  document.getElementById('lightbox').classList.remove('open');
+});
+document.getElementById('lightbox').addEventListener('click', (e) => {
+  if (e.target.id === 'lightbox') document.getElementById('lightbox').classList.remove('open');
+});
+
+function openGallery() {
+  view = 'gallery';
+  renderApp();
+}
+
+async function renderGallery() {
+  setHeader(false);
+  const app = document.getElementById('app');
+  app.innerHTML = `
+    <p class="page-subtitle">Mom, Grandma and Cord's Stangl Stash</p>
+    <div class="gallery-controls">
+      <input type="text" id="gallerySearch" placeholder="Search patterns or pieces...">
+      <select id="galleryPersonFilter">
+        <option value="everyone" selected>Everyone</option>
+        <option value="anyone">Anyone</option>
+        ${PEOPLE.map(p => `<option value="${p}">${personLabel(p)} only</option>`).join('')}
+      </select>
+    </div>
+    <div id="galleryGrid" class="gallery-grid"><p class="dashboard-loading">Loading photos...</p></div>
+  `;
+
+  if (!fbStorage) {
+    document.getElementById('galleryGrid').innerHTML = '<p class="dashboard-note">Connect Firebase (see setup notes at the top of this file) to see uploaded photos.</p>';
+    return;
+  }
+
+  let photos;
+  try {
+    photos = await loadAllPhotos();
+  } catch (err) {
+    document.getElementById('galleryGrid').innerHTML = '<p class="dashboard-note">Could not load photos. Check your Firebase setup and Storage rules.</p>';
+    console.error(err);
+    return;
+  }
+
+  const patternBySlug = new Map(patterns.map(([name]) => [slug(name), name]));
+  const pieceBySlug = new Map(pieceTypes.map(p => [slug(p), p]));
+
+  photos.forEach(p => {
+    p.patternName = patternBySlug.get(p.pSlug) || p.pSlug;
+    p.pieceName = pieceBySlug.get(p.pieceSlug) || p.pieceSlug;
+  });
+
+  photos.sort((a, b) =>
+    a.patternName.localeCompare(b.patternName) ||
+    a.pieceName.localeCompare(b.pieceName) ||
+    a.person.localeCompare(b.person)
+  );
+
+  window.__galleryPhotos = photos;
+  applyGalleryFilters();
+
+  document.getElementById('gallerySearch').addEventListener('input', applyGalleryFilters);
+  document.getElementById('galleryPersonFilter').addEventListener('change', applyGalleryFilters);
+}
+
+function getPairsWithEveryone(photos) {
+  const setsByPerson = Object.fromEntries(PEOPLE.map(p => [p, new Set()]));
+  photos.forEach(p => {
+    const key = `${p.pSlug}--${p.pieceSlug}`;
+    if (setsByPerson[p.person]) setsByPerson[p.person].add(key);
+  });
+  const result = new Set();
+  setsByPerson[PEOPLE[0]].forEach(key => {
+    if (PEOPLE.every(p => setsByPerson[p].has(key))) result.add(key);
+  });
+  return result;
+}
+
+function applyGalleryFilters() {
+  const term = (document.getElementById('gallerySearch').value || '').toLowerCase();
+  const personFilter = document.getElementById('galleryPersonFilter').value;
+  const allPhotos = window.__galleryPhotos || [];
+
+  let base = allPhotos;
+  if (personFilter === 'everyone') {
+    const everyonePairs = getPairsWithEveryone(allPhotos);
+    base = allPhotos.filter(p => everyonePairs.has(`${p.pSlug}--${p.pieceSlug}`));
+  } else if (PEOPLE.includes(personFilter)) {
+    base = allPhotos.filter(p => p.person === personFilter);
+  }
+  // 'anyone' shows everything, no person-based exclusion
+
+  const filtered = base.filter(p =>
+    p.patternName.toLowerCase().includes(term) || p.pieceName.toLowerCase().includes(term)
+  );
+  renderGalleryGrid(filtered);
+}
+
+function renderGalleryGrid(photos) {
+  const grid = document.getElementById('galleryGrid');
+  if (photos.length === 0) {
+    grid.innerHTML = '<div class="empty-note">No uploaded photos match yet.</div>';
+    return;
+  }
+  grid.innerHTML = '';
+  photos.forEach(p => {
+    const tile = document.createElement('div');
+    tile.className = 'gallery-tile';
+    tile.innerHTML = `
+      <div class="gallery-thumb"><img src="${p.url}" alt="" loading="lazy"></div>
+      <div class="gallery-caption">
+        <span class="gallery-pattern">${p.patternName}</span>
+        <span class="gallery-piece">${p.pieceName}</span>
+        <span class="gallery-person ${p.person}">${personLabel(p.person)}</span>
+      </div>
+    `;
+    tile.querySelector('.gallery-thumb').addEventListener('click', () => openLightbox(p.url));
+    tile.querySelector('.gallery-caption').addEventListener('click', () => openDetail(p.patternName));
+    grid.appendChild(tile);
+  });
+}
+
+function renderApp() {
+  if (view === 'dashboard') renderDashboardPage();
+  else if (view === 'library') renderLibraryPage();
+  else if (view === 'gallery') renderGallery();
+  else renderDetail();
+  updateNavActive();
+  window.scrollTo(0, 0);
+}
+
+function initPasswordGate() {
+  const gate = document.getElementById('passwordGate');
+  const input = document.getElementById('passwordInput');
+  const submitBtn = document.getElementById('passwordSubmit');
+  const errorMsg = document.getElementById('passwordError');
+
+  if (sessionStorage.getItem('stangl_unlocked') === 'true') {
+    gate.style.display = 'none';
+    return;
+  }
+
+  function tryPassword() {
+    if (input.value === SITE_PASSWORD) {
+      sessionStorage.setItem('stangl_unlocked', 'true');
+      gate.style.display = 'none';
+    } else {
+      errorMsg.textContent = 'Incorrect password, try again.';
+      input.value = '';
+    }
+  }
+
+  submitBtn.addEventListener('click', tryPassword);
+  input.addEventListener('keypress', (e) => { if (e.key === 'Enter') tryPassword(); });
+  input.focus();
+}
+
+function initNav() {
+  function handleNavClick(e) {
+    const btn = e.target.closest('.nav-btn, .floating-nav-btn');
+    if (!btn) return;
+    const dest = btn.dataset.nav;
+    if (dest === 'dashboard') openDashboard();
+    else if (dest === 'library') openLibrary();
+    else if (dest === 'gallery') openGallery();
+  }
+  document.getElementById('siteNav').addEventListener('click', handleNavClick);
+  document.getElementById('floatingNav').addEventListener('click', handleNavClick);
+}
+
+function isStandaloneApp() {
+  return window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true;
+}
+function isIOSDevice() {
+  return /iphone|ipad|ipod/i.test(navigator.userAgent) && !window.MSStream;
+}
+function isAndroidDevice() {
+  return /android/i.test(navigator.userAgent);
+}
+
+let deferredInstallPrompt = null;
+window.addEventListener('beforeinstallprompt', (e) => {
+  e.preventDefault();
+  deferredInstallPrompt = e;
+});
+window.addEventListener('appinstalled', () => {
+  const btn = document.getElementById('installBtn');
+  if (btn) btn.hidden = true;
+});
+
+function openInstallModal(html) {
+  document.getElementById('installModalContent').innerHTML = html;
+  document.getElementById('installModal').classList.add('open');
+}
+function closeInstallModal() {
+  document.getElementById('installModal').classList.remove('open');
+}
+
+function initInstallButton() {
+  const btn = document.getElementById('installBtn');
+  if (!btn) return;
+  if (isStandaloneApp()) {
+    btn.hidden = true;
+    return;
+  }
+  btn.addEventListener('click', async () => {
+    if (deferredInstallPrompt) {
+      deferredInstallPrompt.prompt();
+      try { await deferredInstallPrompt.userChoice; } catch (e) {}
+      deferredInstallPrompt = null;
+      return;
+    }
+    if (isIOSDevice()) {
+      openInstallModal(`
+        <h3>Install Stangl Stash</h3>
+        <p>1. Tap the <strong>Share</strong> button (the square with an arrow pointing up) in Safari's toolbar.</p>
+        <p>2. Scroll down and tap <strong>Add to Home Screen</strong>.</p>
+        <p>3. Tap <strong>Add</strong> in the top right.</p>
+        <p>It'll show up as its own app icon, no browser bar.</p>
+      `);
+      return;
+    }
+    if (isAndroidDevice()) {
+      openInstallModal(`
+        <h3>Install Stangl Stash</h3>
+        <p>Tap the menu button (usually <strong>&#8942;</strong>) in your browser's toolbar.</p>
+        <p>Choose <strong>Install app</strong> or <strong>Add to Home Screen</strong>.</p>
+      `);
+      return;
+    }
+    openInstallModal(`
+      <h3>Install Stangl Stash</h3>
+      <p>Open this page on your phone in Chrome or Safari, then use the browser's menu to add it to your home screen.</p>
+    `);
+  });
+  document.getElementById('installModalClose').addEventListener('click', closeInstallModal);
+  document.getElementById('installModal').addEventListener('click', (e) => {
+    if (e.target.id === 'installModal') closeInstallModal();
+  });
+}
+
+(async function init() {
+  initPasswordGate();
+  initFirebase();
+  await refreshCustomPatterns();
+  initNav();
+  initInstallButton();
+  renderApp();
+})();
+
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('./sw.js').catch((err) => {
+      console.error('Service worker registration failed:', err);
+    });
+  });
+}
+</script>
+
+</body>
+</html>
